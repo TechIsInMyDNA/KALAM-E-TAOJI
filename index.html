@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kalam-e-Taoji</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rozha+One&family=Yatra+One&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card-bg: #1a1e29;
+      --card-border: #2a3245;
+      --accent: #d4af37;
+      --accent-hover: #e5c158;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --input-bg: #0d1117;
+      --danger: #f85149;
+      --success: #2ea043;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans Devanagari', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: linear-gradient(180deg, #161b22 0%, var(--bg) 100%);
+      padding: 20px 16px;
+      border-bottom: 1px solid var(--card-border);
+      text-align: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .title-banner h1 {
+      font-family: 'Rozha One', serif;
+      color: var(--accent);
+      font-size: 1.8rem;
+      letter-spacing: 1px;
+    }
+
+    .title-banner p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .toolbar {
+      max-width: 900px;
+      margin: 16px auto 0;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 220px;
+      position: relative;
+    }
+
+    input, select, textarea, button {
+      font-family: inherit;
+      font-size: 0.95rem;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      outline: none;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--input-bg);
+      color: var(--text);
+    }
+
+    input:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .btn {
+      padding: 10px 18px;
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-gold {
+      background: var(--accent);
+      color: #111;
+      border: none;
+    }
+    .btn-gold:hover { background: var(--accent-hover); }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .btn-sync {
+      background: #21262d;
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 950px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      flex: 1;
+    }
+
+    .sync-status {
+      font-size: 0.8rem;
+      text-align: center;
+      margin-bottom: 12px;
+      color: var(--text-muted);
+    }
+    .sync-status.active { color: var(--success); }
+
+    .grid-gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: var(--accent);
+    }
+
+    .card-img-wrapper {
+      width: 100%;
+      height: 180px;
+      background: #0d1117;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .card-img-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .card-no-img {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-style: italic;
+    }
+
+    .card-content {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 6px;
+      font-family: 'Rozha One', serif;
+    }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .tag {
+      background: #21262d;
+      color: #58a6ff;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+    }
+
+    .tag.occasion {
+      color: #e3b341;
+    }
+
+    .card-snippet {
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 12px;
+      white-space: pre-line;
+    }
+
+    .card-date {
+      margin-top: auto;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: right;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 1000;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 550px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 10px;
+    }
+
+    .modal-header h2 {
+      font-size: 1.25rem;
+      color: var(--accent);
+      font-family: 'Rozha One', serif;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .preview-box {
+      margin-top: 8px;
+      max-height: 180px;
+      display: none;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+    }
+    .preview-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    /* Full Detail Modal */
+    .detail-view img {
+      width: 100%;
+      max-height: 380px;
+      object-fit: contain;
+      background: #000;
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+    .detail-poem {
+      white-space: pre-wrap;
+      font-size: 1rem;
+      line-height: 1.7;
+      color: #f0f6fc;
+      background: #11141c;
+      padding: 14px;
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title-banner">
+      <h1>कलम-ए-ताऊजी</h1>
+      <p>अनमोल कविताएं, यादें और रचनाओं का सुरक्षित संग्रह</p>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="खोजें: शीर्षक, व्यक्ति, उपलक्ष्य या शब्द..." oninput="filterCards()">
+      </div>
+      <button class="btn btn-gold" onclick="openUploadModal()">+ नई रचना</button>
+      <button class="btn btn-sync" id="syncBtn" onclick="handleAuthOrSync()">☁️ सिंक करें</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="sync-status" id="syncStatus">लोकल मोड (सिंक करने के लिए 'सिंक करें' दबाएं)</div>
+    <div class="grid-gallery" id="cardsGrid"></div>
+  </div>
+
+  <!-- Upload Modal -->
+  <div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>रचना / कविता जोड़ें</h2>
+        <button class="close-btn" onclick="closeModal('uploadModal')">&times;</button>
+      </div>
+
+      <div class="form-group">
+        <label>शीर्षक (Title):</label>
+        <input type="text" id="poemTitle" placeholder="उदा: जीवन की सीख">
+      </div>
+
+      <div class="form-group">
+        <label>किसके लिए लिखा (Dedicated to):</label>
+        <input type="text" id="poemFor" placeholder="उदा: बिटिया, परिवार, मित्र, खुद के लिए...">
+      </div>
+
+      <div class="form-group">
+        <label>उपलक्ष्य (Occasion):</label>
+        <input type="text" id="poemOccasion" placeholder="उदा: जन्मदिन, शादी की सालगिरह, विचार...">
+      </div>
+
+      <div class="form-group">
+        <label>तारीख (Date):</label>
+        <input type="date" id="poemDate">
+      </div>
+
+      <div class="form-group">
+        <label>कविता के बोल / शब्द (Full Text):</label>
+        <textarea id="poemText" rows="5" placeholder="यहाँ कविता या उसके मुख्य शब्द लिखें..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>स्क्रीनशॉट / हस्तलिखित फोटो अपलोड:</label>
+        <input type="file" id="poemImage" accept="image/*" onchange="handleImageCompress(event)">
+        <div class="preview-box" id="previewBox">
+          <img id="imagePreview" src="" alt="Preview">
+        </div>
+      </div>
+
+      <button class="btn btn-gold" style="width:100%; margin-top: 10px;" onclick="saveEntry()">सुरक्षित सहेजें (Save)</button>
+    </div>
+  </div>
+
+  <!-- Detail Viewer Modal -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="modal detail-view">
+      <div class="modal-header">
+        <h2 id="viewTitle">शीर्षक</h2>
+        <button class="close-btn" onclick="closeModal('detailModal')">&times;</button>
+      </div>
+      <div id="viewImageContainer"></div>
+      <div class="card-tags" id="viewTags"></div>
+      <div class="detail-poem" id="viewText"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+        <span style="font-size: 0.8rem; color: var(--text-muted);" id="viewDate"></span>
+        <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger);" id="deleteBtn">हटाएं (Delete)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // GitHub Hardcoded Config
+    const GH_OWNER = "TechIsInMyDNA";
+    const GH_REPO = "KALAM-E-TAOJI";
+    const GH_FILE = "data.json";
+    const MASTER_PASSPHRASE = "Dinesh@2026";
+
+    let state = {
+      entries: [],
+      ghToken: localStorage.getItem("taoji_gh_token") || "",
+      sha: ""
+    };
+
+    let compressedImageBase64 = "";
+
+    // Image Compressor to keep data.json lightweight
+    function handleImageCompress(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 900;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          compressedImageBase64 = canvas.toDataURL("image/jpeg", 0.72);
+          document.getElementById("imagePreview").src = compressedImageBase64;
+          document.getElementById("previewBox").style.display = "block";
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Passphrase & Token Auth Gate
+    async function handleAuthOrSync() {
+      if (!state.ghToken) {
+        const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
+        if (pass !== MASTER_PASSPHRASE) {
+          alert("गलत पासफ़्रेज़! डेटा ऐक्सेस अस्वीकृत।");
+          return;
+        }
+
+        const token = prompt("GitHub Personal Access Token (Fine-grained ya Classic token jisme Repo read/write access ho):");
+        if (!token) return;
+
+        state.ghToken = token.trim();
+        localStorage.setItem("taoji_gh_token", state.ghToken);
+      }
+
+      await syncWithGitHub();
+    }
+
+    // Sync Live with GitHub API
+    async function syncWithGitHub() {
+      const statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "GitHub से सिंक हो रहा है...";
+
+      try {
+        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        const res = await fetch(url, {
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        });
+
+        if (res.status === 200) {
+          const data = await res.json();
+          state.sha = data.sha;
+          const rawContent = decodeURIComponent(escape(atob(data.content)));
+
+          try {
+            // Decrypt AES-256 payload
+            const bytes = CryptoJS.AES.decrypt(rawContent, MASTER_PASSPHRASE);
+            const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+            if (decryptedString) {
+              state.entries = JSON.parse(decryptedString);
+            }
+          } catch(e) {
+            console.error("Decryption failed, assuming empty or wrong key", e);
+          }
+          statusEl.textContent = "लाइव सिंक चालू है (GitHub Connected)";
+          statusEl.className = "sync-status active";
+          localStorage.setItem("taoji_local_cache", JSON.stringify(state.entries));
+          renderEntries();
+        } else if (res.status === 404) {
+          // File does not exist yet; will create on first save
+          statusEl.textContent = "नई data.json फाइल तैयार होगी (GitHub Connected)";
+          statusEl.className = "sync-status active";
+        } else {
+          throw new Error("HTTP " + res.status);
+        }
+      } catch (err) {
+        statusEl.textContent = "सिंक विफल: टोकन चेक करें ya इंटरनेट कनेक्टिविटी देखें";
+        statusEl.className = "sync-status";
+        alert("GitHub Sync Error: " + err.message);
+      }
+    }
+
+    // Push Updated data.json to GitHub
+    async function pushToGitHub() {
+      const statusEl = document.getElementById("syncStatus");
+      if (!state.ghToken) {
+        localStorage.setItem("taoji_local_cache", JSON.stringify(state.entries));
+        renderEntries();
+        return;
+      }
+
+      statusEl.textContent = "क्लाउड पर सहेजा जा रहा है...";
+      try {
+        const encrypted = CryptoJS.AES.encrypt(JSON.stringify(state.entries), MASTER_PASSPHRASE).toString();
+        const base64Content = btoa(unescape(encodeURIComponent(encrypted)));
+
+        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        const body = {
+          message: "Update taoji collection via Web App",
+          content: base64Content
+        };
+        if (state.sha) body.sha = state.sha;
+
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          const respData = await res.json();
+          state.sha = respData.content.sha;
+          statusEl.textContent = "सफलतापूर्वक क्लाउड पर सिंक हो गया!";
+          statusEl.className = "sync-status active";
+        } else {
+          throw new Error("Update status " + res.status);
+        }
+      } catch (err) {
+        statusEl.textContent = "लोकल सेव हुआ, GitHub अपडेट में एरर: " + err.message;
+      }
+    }
+
+    // UI & State Handling
+    function openUploadModal() {
+      document.getElementById("poemTitle").value = "";
+      document.getElementById("poemFor").value = "";
+      document.getElementById("poemOccasion").value = "";
+      document.getElementById("poemDate").value = new Date().toISOString().split("T")[0];
+      document.getElementById("poemText").value = "";
+      document.getElementById("poemImage").value = "";
+      document.getElementById("previewBox").style.display = "none";
+      compressedImageBase64 = "";
+      document.getElementById("uploadModal").classList.add("open");
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("open");
+    }
+
+    async function saveEntry() {
+      const title = document.getElementById("poemTitle").value.trim() || "बिना शीर्षक";
+      const target = document.getElementById("poemFor").value.trim();
+      const occasion = document.getElementById("poemOccasion").value.trim();
+      const date = document.getElementById("poemDate").value;
+      const text = document.getElementById("poemText").value.trim();
+
+      const newEntry = {
+        id: "tao_" + Date.now(),
+        title,
+        target,
+        occasion,
+        date,
+        text,
+        image: compressedImageBase64,
+        timestamp: Date.now()
+      };
+
+      state.entries.unshift(newEntry);
+      closeModal("uploadModal");
+      renderEntries();
+      await pushToGitHub();
+    }
+
+    function renderEntries(list = state.entries) {
+      const grid = document.getElementById("cardsGrid");
+      grid.innerHTML = "";
+
+      if (list.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
+          कोई रचना नहीं मिली। ऊपर '+ नई रचना' बटन से ताऊजी की पहली कविता जोड़ें।
+        </div>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.onclick = () => openDetailModal(item.id);
+
+        let imgHtml = item.image 
+          ? `<div class="card-img-wrapper"><img src="${item.image}" alt="${item.title}"></div>`
+          : `<div class="card-img-wrapper"><span class="card-no-img">केवल हस्तलिखित शब्द</span></div>`;
+
+        card.innerHTML = `
+          ${imgHtml}
+          <div class="card-content">
+            <div class="card-title">${item.title}</div>
+            <div class="card-tags">
+              ${item.target ? `<span class="tag">👤 ${item.target}</span>` : ""}
+              ${item.occasion ? `<span class="tag occasion">✨ ${item.occasion}</span>` : ""}
+            </div>
+            <div class="card-snippet">${item.text || "छवि देखें..."}</div>
+            <div class="card-date">${item.date || ""}</div>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function filterCards() {
+      const q = document.getElementById("searchInput").value.toLowerCase().trim();
+      if (!q) {
+        renderEntries(state.entries);
+        return;
+      }
+
+      const filtered = state.entries.filter(item => {
+        return (item.title && item.title.toLowerCase().includes(q)) ||
+               (item.target && item.target.toLowerCase().includes(q)) ||
+               (item.occasion && item.occasion.toLowerCase().includes(q)) ||
+               (item.text && item.text.toLowerCase().includes(q)) ||
+               (item.date && item.date.includes(q));
+      });
+      renderEntries(filtered);
+    }
+
+    function openDetailModal(id) {
+      const item = state.entries.find(e => e.id === id);
+      if (!item) return;
+
+      document.getElementById("viewTitle").textContent = item.title;
+      
+      const imgCont = document.getElementById("viewImageContainer");
+      if (item.image) {
+        imgCont.innerHTML = `<img src="${item.image}" alt="Taoji Rachna">`;
+      } else {
+        imgCont.innerHTML = "";
+      }
+
+      const tagsCont = document.getElementById("viewTags");
+      tagsCont.innerHTML = `
+        ${item.target ? `<span class="tag">👤 समर्पित: ${item.target}</span>` : ""}
+        ${item.occasion ? `<span class="tag occasion">✨ उपलक्ष्य: ${item.occasion}</span>` : ""}
+      `;
+
+      const textEl = document.getElementById("viewText");
+      if (item.text) {
+        textEl.style.display = "block";
+        textEl.textContent = item.text;
+      } else {
+        textEl.style.display = "none";
+      }
+
+      document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
+      
+      const delBtn = document.getElementById("deleteBtn");
+      delBtn.onclick = async () => {
+        if (confirm("क्या आप वाकई इस रचना को हटाना चाहते हैं?")) {
+          state.entries = state.entries.filter(e => e.id !== id);
+          closeModal("detailModal");
+          renderEntries();
+          await pushToGitHub();
+        }
+      };
+
+      document.getElementById("detailModal").classList.add("open");
+    }
+
+    // Auto-init on page load
+    window.addEventListener("DOMContentLoaded", () => {
+      const cached = localStorage.getItem("taoji_local_cache");
+      if (cached) {
+        try {
+          state.entries = JSON.parse(cached);
+          renderEntries();
+        } catch(e){}
+      }
+      if (state.ghToken) {
+        syncWithGitHub();
+      }
+    });
+  </script>
+</body>
+</html>
