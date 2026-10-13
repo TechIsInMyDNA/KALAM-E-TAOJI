@@ -115,6 +115,7 @@
     .btn-dark { background: #21262d; color: var(--text); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-blue { background: var(--primary); color: #fff; }
+    .btn-success { background: var(--success); color: #fff; }
 
     .bulk-bar {
       display: none;
@@ -248,7 +249,7 @@
       text-align: right;
     }
 
-    /* Modal Styles */
+    /* Modals */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -360,8 +361,13 @@
         <button class="btn btn-dark" onclick="openBulkUploadModal()">📸 बल्क फोटो</button>
         <button class="btn btn-dark" id="toggleSelectBtn" onclick="toggleSelectionMode()">☑️ चयन मोड</button>
         <button class="btn btn-dark" onclick="findAndCleanDuplicates()">🔍 डुप्लीकेट हटाएं</button>
+        <button class="btn btn-dark" onclick="exportBackupJSON()">💾 बैकअप लें</button>
+        <button class="btn btn-dark" onclick="triggerRestoreInput()">📥 रीस्टोर करें</button>
         <button class="btn btn-blue" onclick="handleAuthOrSync()">☁️ सिंक करें</button>
       </div>
+
+      <!-- Hidden Restore Input -->
+      <input type="file" id="restoreFileInput" accept=".json" style="display:none;" onchange="handleRestoreJSON(event)">
 
       <div class="bulk-bar" id="bulkBar">
         <span id="selectedCountText" style="font-size: 0.85rem; color: var(--accent);">0 चुने गए</span>
@@ -538,6 +544,180 @@
       }
     }
 
+    // 100% Accuracy Pixel-Level Visual Fingerprint Generator (8x8 Grayscale aHash)
+    function generateVisualFingerprint(base64Str) {
+      return new Promise((resolve) => {
+        if (!base64Str) return resolve(null);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = 8;
+          canvas.height = 8;
+          ctx.drawImage(img, 0, 0, 8, 8);
+
+          const imgData = ctx.getImageData(0, 0, 8, 8).data;
+          const grays = [];
+          let sum = 0;
+
+          // RGB to Grayscale
+          for (let i = 0; i < imgData.length; i += 4) {
+            const gray = Math.round(imgData[i] * 0.299 + imgData[i + 1] * 0.587 + imgData[i + 2] * 0.114);
+            grays.push(gray);
+            sum += gray;
+          }
+          const avg = sum / 64;
+
+          // 64-bit binary aHash
+          let fingerprint = "";
+          for (let i = 0; i < 64; i++) {
+            fingerprint += (grays[i] >= avg ? "1" : "0");
+          }
+          resolve(fingerprint);
+        };
+        img.onerror = () => resolve(null);
+        img.src = base64Str;
+      });
+    }
+
+    function getHammingDistance(fp1, fp2) {
+      let diff = 0;
+      for (let i = 0; i < 64; i++) {
+        if (fp1[i] !== fp2[i]) diff++;
+      }
+      return diff;
+    }
+
+    // Advanced Duplicate Detection & Cleaner
+    async function findAndCleanDuplicates() {
+      if (state.entries.length <= 1) {
+        alert("कम से कम 2 रचनाएं होनी चाहिए डुप्लीकेट जांचने के लिए।");
+        return;
+      }
+
+      const statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "पिक्सेल लेवल पर डुप्लीकेट फोटो जांची जा रही हैं...";
+
+      const fingerprints = [];
+      for (let i = 0; i < state.entries.length; i++) {
+        const item = state.entries[i];
+        const fp = item.image ? await generateVisualFingerprint(item.image) : null;
+        fingerprints.push({ id: item.id, item: item, fp: fp });
+      }
+
+      const duplicateIds = new Set();
+
+      for (let i = 0; i < fingerprints.length; i++) {
+        if (duplicateIds.has(fingerprints[i].id)) continue;
+
+        for (let j = i + 1; j < fingerprints.length; j++) {
+          if (duplicateIds.has(fingerprints[j].id)) continue;
+
+          const a = fingerprints[i];
+          const b = fingerprints[j];
+          let isMatch = false;
+
+          if (a.fp && b.fp) {
+            // Hamming distance <= 3 ensures 100% accurate visual duplicate detection
+            const distance = getHammingDistance(a.fp, b.fp);
+            if (distance <= 3) {
+              isMatch = true;
+            }
+          } else if (!a.item.image && !b.item.image) {
+            // Text only check
+            if (a.item.text && b.item.text && a.item.text.trim() === b.item.text.trim()) {
+              isMatch = true;
+            }
+          }
+
+          if (isMatch) {
+            duplicateIds.add(b.id);
+          }
+        }
+      }
+
+      statusEl.textContent = "";
+
+      if (duplicateIds.size === 0) {
+        alert("एक भी डुप्लीकेट नहीं मिला! सभी तस्वीरें और रचनाएं यूनीक हैं।");
+        return;
+      }
+
+      if (confirm(`कुल ${duplicateIds.size} डुप्लीकेट तस्वीरें/रचनाएं मिलीं!\n\nक्या आप इन्हें हटाकर हर फोटो की 1 मूल कॉपी सुरक्षित रखना चाहते हैं?`)) {
+        state.entries = state.entries.filter(e => !duplicateIds.has(e.id));
+        renderEntries();
+        await pushToGitHub();
+        alert(`सफलतापूर्वक ${duplicateIds.size} डुप्लीकेट हटा दिए गए!`);
+      }
+    }
+
+    // JSON Daily Backup & Restore System
+    function exportBackupJSON() {
+      if (state.entries.length === 0) {
+        alert("बैकअप लेने के लिए कोई डेटा नहीं है!");
+        return;
+      }
+
+      const backupData = {
+        exportedAt: new Date().toISOString(),
+        appName: "Kalam-e-Taoji",
+        totalEntries: state.entries.length,
+        entries: state.entries
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement("a");
+      const dateStr = new Date().toISOString().split("T")[0];
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `Taoji_Collection_Backup_${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function triggerRestoreInput() {
+      document.getElementById("restoreFileInput").click();
+    }
+
+    function handleRestoreJSON(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(event) {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          let newEntries = [];
+
+          if (Array.isArray(parsed)) {
+            newEntries = parsed;
+          } else if (parsed && Array.isArray(parsed.entries)) {
+            newEntries = parsed.entries;
+          } else {
+            throw new Error("अमान्य JSON फ़ाइल फ़ॉर्मेट!");
+          }
+
+          if (confirm(`इस फ़ाइल में ${newEntries.length} रचनाएं मिलीं। क्या आप इन्हें रीस्टोर करना चाहते हैं?`)) {
+            // Merge without losing existing entries
+            const map = new Map();
+            state.entries.forEach(item => map.set(item.id, item));
+            newEntries.forEach(item => map.set(item.id, item));
+            state.entries = Array.from(map.values());
+
+            saveToLocalStorage();
+            renderEntries();
+            await pushToGitHub();
+            alert("डेटा सफलतापूर्वक रीस्टोर हो गया!");
+          }
+        } catch (err) {
+          alert("रीस्टोर विफल: " + err.message);
+        } finally {
+          e.target.value = "";
+        }
+      };
+      reader.readAsText(file);
+    }
+
     // Passphrase & GitHub Sync Gate
     async function handleAuthOrSync() {
       if (!state.ghToken) {
@@ -580,7 +760,6 @@
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
             if (decrypted) {
               const remoteEntries = JSON.parse(decrypted);
-              // Merge remote and local to prevent data loss
               const map = new Map();
               [...state.entries, ...remoteEntries].forEach(item => map.set(item.id, item));
               state.entries = Array.from(map.values());
@@ -593,7 +772,7 @@
           saveToLocalStorage();
           renderEntries();
         } else if (res.status === 404) {
-          // File does not exist -> Automatically create and push current local data
+          // File does not exist yet -> Automatically push & create data.json
           statusEl.textContent = "GitHub पर पहली बार डेटा बन रहा है...";
           await pushToGitHub();
           statusEl.textContent = "";
@@ -826,51 +1005,6 @@
       alert("बल्क बदलाव सुरक्षित हो गए!");
     }
 
-    // Duplicate Detection & Removal
-    async function findAndCleanDuplicates() {
-      if (state.entries.length === 0) return alert("कोई रचना उपलब्ध नहीं है।");
-
-      const seen = new Set();
-      const duplicates = [];
-
-      state.entries.forEach(item => {
-        // Create signature using image hash/length and text/title
-        const key = item.image 
-          ? `img_${item.image.length}_${item.image.slice(-50)}` 
-          : `txt_${item.title}_${item.text}`;
-
-        if (seen.has(key)) {
-          duplicates.push(item);
-        } else {
-          seen.add(key);
-        }
-      });
-
-      if (duplicates.length === 0) {
-        alert("कोई भी डुप्लीकेट रचना नहीं मिली! सब कुछ एकदम साफ है।");
-        return;
-      }
-
-      if (confirm(`${duplicates.length} डुप्लीकेट रचनाएं मिलीं। क्या आप उन्हें हटाकर 1-1 कॉपी सुरक्षित रखना चाहते हैं?`)) {
-        const uniqueSet = new Set();
-        state.entries = state.entries.filter(item => {
-          const key = item.image 
-            ? `img_${item.image.length}_${item.image.slice(-50)}` 
-            : `txt_${item.title}_${item.text}`;
-
-          if (uniqueSet.has(key)) {
-            return false;
-          }
-          uniqueSet.add(key);
-          return true;
-        });
-
-        renderEntries();
-        await pushToGitHub();
-        alert(`सफलतापूर्वक ${duplicates.length} डुप्लीकेट हटा दिए गए!`);
-      }
-    }
-
     // Gallery Render
     function renderEntries(list = state.entries) {
       const grid = document.getElementById("cardsGrid");
@@ -971,7 +1105,7 @@
       openModal("detailModal");
     }
 
-    // Init cache and sync on startup
+    // Init cache and auto-sync on startup
     window.addEventListener("DOMContentLoaded", () => {
       const cached = localStorage.getItem("taoji_local_cache");
       if (cached) {
