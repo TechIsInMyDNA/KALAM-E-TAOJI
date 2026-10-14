@@ -66,10 +66,7 @@
       gap: 10px;
     }
 
-    .search-row {
-      display: flex;
-      gap: 8px;
-    }
+    .search-row { display: flex; gap: 8px; }
 
     .action-row {
       display: flex;
@@ -115,7 +112,6 @@
     .btn-dark { background: #21262d; color: var(--text); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-blue { background: var(--primary); color: #fff; }
-    .btn-success { background: var(--success); color: #fff; }
 
     .bulk-bar {
       display: none;
@@ -140,11 +136,12 @@
     }
 
     .sync-status {
-      font-size: 0.75rem;
+      font-size: 0.8rem;
       text-align: center;
       margin-bottom: 10px;
-      color: var(--text-muted);
+      color: var(--accent);
       min-height: 1.2em;
+      font-weight: 600;
     }
 
     .grid-gallery {
@@ -366,7 +363,6 @@
         <button class="btn btn-blue" onclick="handleAuthOrSync()">☁️ सिंक करें</button>
       </div>
 
-      <!-- Hidden Restore Input -->
       <input type="file" id="restoreFileInput" accept=".json" style="display:none;" onchange="handleRestoreJSON(event)">
 
       <div class="bulk-bar" id="bulkBar">
@@ -428,7 +424,7 @@
         <button class="close-btn" onclick="closeModal('bulkUploadModal')">&times;</button>
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर सुरक्षित जुड़ जाएंगे।
+        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर जुड़ जाएंगे।
       </p>
       <div class="form-group">
         <label>डिफ़ॉल्ट उपलक्ष्य (Optional):</label>
@@ -446,7 +442,7 @@
         <div class="progress-bar" id="bulkProgressBar"></div>
       </div>
       <div id="bulkStatusText" style="font-size: 0.8rem; color: var(--accent); margin-bottom: 8px;"></div>
-      <button class="btn btn-gold" style="width:100%;" onclick="processBulkUpload()">सभी अपलोड करें</button>
+      <button class="btn btn-gold" id="startBulkBtn" style="width:100%;" onclick="processBulkUpload()">सभी अपलोड करें</button>
     </div>
   </div>
 
@@ -499,6 +495,9 @@
     const GH_FILE = "data.json";
     const MASTER_PASSPHRASE = "Dinesh@2026";
 
+    // Clean up buggy 5MB localStorage if exists
+    try { localStorage.removeItem("taoji_local_cache"); } catch(e){}
+
     let state = {
       entries: [],
       ghToken: localStorage.getItem("taoji_gh_token") || "",
@@ -509,8 +508,53 @@
 
     let singleUploadBase64 = "";
 
-    // Image Compressor Tool
-    function compressImageFile(file, maxWidth = 900, quality = 0.72) {
+    // ==================== INDEXEDDB ENGINE (NO QUOTA LIMIT) ====================
+    const DB_NAME = "TaojiAppDB";
+    const DB_VERSION = 1;
+    const STORE_NAME = "records";
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: "key" });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function saveToLocalDB() {
+      try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        store.put({ key: "entries_cache", data: state.entries });
+      } catch(e) {
+        console.warn("DB save failed", e);
+      }
+    }
+
+    async function loadFromLocalDB() {
+      try {
+        const db = await openDB();
+        return new Promise((resolve) => {
+          const tx = db.transaction(STORE_NAME, "readonly");
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.get("entries_cache");
+          req.onsuccess = () => resolve(req.result ? req.result.data : []);
+          req.onerror = () => resolve([]);
+        });
+      } catch(e) {
+        return [];
+      }
+    }
+
+    // High performance smooth compression (750px width, 0.65 quality)
+    function compressImageFile(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = function(event) {
@@ -519,18 +563,20 @@
             const canvas = document.createElement("canvas");
             let width = img.width;
             let height = img.height;
+            const MAX_WIDTH = 750;
 
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
+            if (width > MAX_WIDTH) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
             }
 
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", quality));
+            resolve(canvas.toDataURL("image/jpeg", 0.65));
           };
+          img.onerror = () => resolve("");
           img.src = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -544,7 +590,7 @@
       }
     }
 
-    // 100% Accuracy Pixel-Level Visual Fingerprint Generator (8x8 Grayscale aHash)
+    // 100% Accurate Visual Fingerprint Generator
     function generateVisualFingerprint(base64Str) {
       return new Promise((resolve) => {
         if (!base64Str) return resolve(null);
@@ -560,7 +606,6 @@
           const grays = [];
           let sum = 0;
 
-          // RGB to Grayscale
           for (let i = 0; i < imgData.length; i += 4) {
             const gray = Math.round(imgData[i] * 0.299 + imgData[i + 1] * 0.587 + imgData[i + 2] * 0.114);
             grays.push(gray);
@@ -568,7 +613,6 @@
           }
           const avg = sum / 64;
 
-          // 64-bit binary aHash
           let fingerprint = "";
           for (let i = 0; i < 64; i++) {
             fingerprint += (grays[i] >= avg ? "1" : "0");
@@ -588,7 +632,6 @@
       return diff;
     }
 
-    // Advanced Duplicate Detection & Cleaner
     async function findAndCleanDuplicates() {
       if (state.entries.length <= 1) {
         alert("कम से कम 2 रचनाएं होनी चाहिए डुप्लीकेट जांचने के लिए।");
@@ -606,7 +649,6 @@
       }
 
       const duplicateIds = new Set();
-
       for (let i = 0; i < fingerprints.length; i++) {
         if (duplicateIds.has(fingerprints[i].id)) continue;
 
@@ -618,21 +660,12 @@
           let isMatch = false;
 
           if (a.fp && b.fp) {
-            // Hamming distance <= 3 ensures 100% accurate visual duplicate detection
-            const distance = getHammingDistance(a.fp, b.fp);
-            if (distance <= 3) {
-              isMatch = true;
-            }
+            if (getHammingDistance(a.fp, b.fp) <= 3) isMatch = true;
           } else if (!a.item.image && !b.item.image) {
-            // Text only check
-            if (a.item.text && b.item.text && a.item.text.trim() === b.item.text.trim()) {
-              isMatch = true;
-            }
+            if (a.item.text && b.item.text && a.item.text.trim() === b.item.text.trim()) isMatch = true;
           }
 
-          if (isMatch) {
-            duplicateIds.add(b.id);
-          }
+          if (isMatch) duplicateIds.add(b.id);
         }
       }
 
@@ -643,7 +676,7 @@
         return;
       }
 
-      if (confirm(`कुल ${duplicateIds.size} डुप्लीकेट तस्वीरें/रचनाएं मिलीं!\n\nक्या आप इन्हें हटाकर हर फोटो की 1 मूल कॉपी सुरक्षित रखना चाहते हैं?`)) {
+      if (confirm(`कुल ${duplicateIds.size} डुप्लीकेट तस्वीरें मिलीं!\n\nक्या आप इन्हें हटाकर हर फोटो की 1 मूल कॉपी सुरक्षित रखना चाहते हैं?`)) {
         state.entries = state.entries.filter(e => !duplicateIds.has(e.id));
         renderEntries();
         await pushToGitHub();
@@ -694,17 +727,16 @@
           } else if (parsed && Array.isArray(parsed.entries)) {
             newEntries = parsed.entries;
           } else {
-            throw new Error("अमान्य JSON फ़ाइल फ़ॉर्मेट!");
+            throw new Error("अमान्य JSON फ़ाइल!");
           }
 
           if (confirm(`इस फ़ाइल में ${newEntries.length} रचनाएं मिलीं। क्या आप इन्हें रीस्टोर करना चाहते हैं?`)) {
-            // Merge without losing existing entries
             const map = new Map();
             state.entries.forEach(item => map.set(item.id, item));
             newEntries.forEach(item => map.set(item.id, item));
             state.entries = Array.from(map.values());
 
-            saveToLocalStorage();
+            await saveToLocalDB();
             renderEntries();
             await pushToGitHub();
             alert("डेटा सफलतापूर्वक रीस्टोर हो गया!");
@@ -718,7 +750,7 @@
       reader.readAsText(file);
     }
 
-    // Passphrase & GitHub Sync Gate
+    // Live Sync & Robust GitHub Handlers
     async function handleAuthOrSync() {
       if (!state.ghToken) {
         const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
@@ -727,7 +759,7 @@
           return;
         }
 
-        const token = prompt("GitHub Token दर्ज करें:");
+        const token = prompt("GitHub Personal Access Token दर्ज करें:");
         if (!token) return;
 
         state.ghToken = token.trim();
@@ -768,11 +800,11 @@
             console.error("Decryption error", e);
           }
 
-          statusEl.textContent = "";
-          saveToLocalStorage();
+          statusEl.textContent = "सिंक सफल!";
+          setTimeout(() => { statusEl.textContent = ""; }, 2500);
+          await saveToLocalDB();
           renderEntries();
         } else if (res.status === 404) {
-          // File does not exist yet -> Automatically push & create data.json
           statusEl.textContent = "GitHub पर पहली बार डेटा बन रहा है...";
           await pushToGitHub();
           statusEl.textContent = "";
@@ -787,18 +819,30 @@
 
     async function pushToGitHub() {
       const statusEl = document.getElementById("syncStatus");
-      saveToLocalStorage();
+      await saveToLocalDB();
 
       if (!state.ghToken) return;
 
       statusEl.textContent = "क्लाउड पर सेव हो रहा है...";
       try {
+        // Fetch latest SHA first to prevent 409 conflict
+        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        const checkRes = await fetch(url, {
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          state.sha = checkData.sha;
+        }
+
         const encrypted = CryptoJS.AES.encrypt(JSON.stringify(state.entries), MASTER_PASSPHRASE).toString();
         const base64Content = btoa(unescape(encodeURIComponent(encrypted)));
 
-        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
         const body = {
-          message: "Auto-sync taoji records",
+          message: "Update taoji records",
           content: base64Content
         };
         if (state.sha) body.sha = state.sha;
@@ -816,17 +860,14 @@
         if (res.ok) {
           const respData = await res.json();
           state.sha = respData.content.sha;
-          statusEl.textContent = "";
+          statusEl.textContent = "सफलतापूर्वक सुरक्षित हो गया!";
+          setTimeout(() => { statusEl.textContent = ""; }, 2500);
         } else {
-          throw new Error("HTTP " + res.status);
+          throw new Error("Update status " + res.status);
         }
       } catch (err) {
-        statusEl.textContent = "लोकल सेव, क्लाउड पुश में एरर: " + err.message;
+        statusEl.textContent = "लोकल सुरक्षित, GitHub अपडेट में एरर: " + err.message;
       }
-    }
-
-    function saveToLocalStorage() {
-      localStorage.setItem("taoji_local_cache", JSON.stringify(state.entries));
     }
 
     // Modal Control
@@ -850,10 +891,10 @@
       document.getElementById("bulkDefaultDate").value = new Date().toISOString().split("T")[0];
       document.getElementById("bulkProgressBox").style.display = "none";
       document.getElementById("bulkStatusText").textContent = "";
+      document.getElementById("startBulkBtn").disabled = false;
       openModal("bulkUploadModal");
     }
 
-    // Single Entry Save
     async function saveSingleEntry() {
       const title = document.getElementById("poemTitle").value.trim() || "अनाम रचना";
       const target = document.getElementById("poemFor").value.trim();
@@ -878,13 +919,16 @@
       await pushToGitHub();
     }
 
-    // Bulk Photo Process
+    // Ultra-Fast Bulk Upload (Memory-Safe Sequential Processing)
     async function processBulkUpload() {
       const files = document.getElementById("bulkFileInput").files;
       if (!files || files.length === 0) {
         alert("कृपया कम से कम एक फोटो चुनें!");
         return;
       }
+
+      const startBtn = document.getElementById("startBulkBtn");
+      startBtn.disabled = true;
 
       const defaultOccasion = document.getElementById("bulkDefaultOccasion").value.trim() || "संकलन";
       const defaultDate = document.getElementById("bulkDefaultDate").value || new Date().toISOString().split("T")[0];
@@ -897,7 +941,7 @@
       const total = files.length;
       for (let i = 0; i < total; i++) {
         const file = files[i];
-        statusText.textContent = `प्रोसेस हो रहा है: ${i + 1}/${total} (${file.name})`;
+        statusText.textContent = `फोटो प्रोसेस: ${i + 1}/${total}`;
         progressBar.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
 
         const b64 = await compressImageFile(file);
@@ -912,12 +956,14 @@
           timestamp: Date.now() + i
         };
         state.entries.unshift(newEntry);
+        // Small delay to allow UI refresh without freezing
+        await new Promise(r => setTimeout(r, 20));
       }
 
       closeModal("bulkUploadModal");
       renderEntries();
       await pushToGitHub();
-      alert(`बधाई हो! ${total} फोटो सफलतापूर्वक जुड़ गए।`);
+      alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए।`);
     }
 
     // Selection & Bulk Actions
@@ -1032,7 +1078,7 @@
 
         const isChecked = state.selectedIds.has(item.id) ? "checked" : "";
         let imgHtml = item.image 
-          ? `<div class="card-img-wrapper"><img src="${item.image}" alt="${item.title}"></div>`
+          ? `<div class="card-img-wrapper"><img src="${item.image}" alt="${item.title}" loading="lazy"></div>`
           : `<div class="card-img-wrapper"><span style="color:var(--text-muted); font-size:0.8rem;">हस्तलिखित शब्द</span></div>`;
 
         card.innerHTML = `
@@ -1095,7 +1141,7 @@
       const delBtn = document.getElementById("deleteBtn");
       delBtn.onclick = async () => {
         if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
-          state.entries = state.entries.filter(e => e.id !== id);
+          state.entries = state.entries.filter(e => !state.selectedIds.has(e.id));
           closeModal("detailModal");
           renderEntries();
           await pushToGitHub();
@@ -1105,14 +1151,12 @@
       openModal("detailModal");
     }
 
-    // Init cache and auto-sync on startup
-    window.addEventListener("DOMContentLoaded", () => {
-      const cached = localStorage.getItem("taoji_local_cache");
-      if (cached) {
-        try {
-          state.entries = JSON.parse(cached);
-          renderEntries();
-        } catch(e){}
+    // Auto load IndexedDB on start
+    window.addEventListener("DOMContentLoaded", async () => {
+      const cached = await loadFromLocalDB();
+      if (cached && cached.length > 0) {
+        state.entries = cached;
+        renderEntries();
       }
       if (state.ghToken) {
         syncWithGitHub();
