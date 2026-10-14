@@ -44,7 +44,7 @@
 
     .title-banner {
       text-align: center;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .title-banner h1 {
@@ -58,12 +58,24 @@
       color: var(--text-muted);
     }
 
+    .total-stat-badge {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 2px 10px;
+      background: rgba(212, 175, 55, 0.15);
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      font-size: 0.75rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
     .toolbar {
       max-width: 950px;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
 
     .search-row { display: flex; gap: 8px; }
@@ -76,6 +88,46 @@
       scrollbar-width: none;
     }
     .action-row::-webkit-scrollbar { display: none; }
+
+    .category-filter-bar {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 4px 0;
+      scrollbar-width: none;
+    }
+    .category-filter-bar::-webkit-scrollbar { display: none; }
+
+    .cat-pill {
+      background: #161b22;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+    .cat-pill.active {
+      background: var(--accent);
+      color: #111;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .cat-pill-count {
+      background: rgba(0,0,0,0.3);
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 0.7rem;
+    }
+    .cat-pill.active .cat-pill-count {
+      background: rgba(0,0,0,0.25);
+      color: #000;
+    }
 
     input, select, textarea, button {
       font-family: inherit;
@@ -226,6 +278,7 @@
       font-size: 0.72rem;
     }
     .tag.occasion { color: #e3b341; }
+    .tag.category { color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
 
     .card-snippet {
       font-size: 0.82rem;
@@ -338,6 +391,24 @@
       background: var(--accent);
       transition: width 0.2s ease;
     }
+
+    .cat-manage-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      margin-bottom: 14px;
+    }
+    .cat-item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #161b22;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+    }
   </style>
 </head>
 <body>
@@ -346,6 +417,7 @@
     <div class="title-banner">
       <h1>कलम-ए-ताऊजी</h1>
       <p>अनमोल कविताएं, यादें और रचनाओं का सुरक्षित संग्रह</p>
+      <div class="total-stat-badge" id="totalStatCount">कुल रचनाएं: 0</div>
     </div>
 
     <div class="toolbar">
@@ -356,12 +428,15 @@
       <div class="action-row">
         <button class="btn btn-gold" onclick="openUploadModal()">+ नई रचना</button>
         <button class="btn btn-dark" onclick="openBulkUploadModal()">📸 बल्क फोटो</button>
+        <button class="btn btn-dark" onclick="openCategoryManageModal()">🏷️ श्रेणियां</button>
         <button class="btn btn-dark" id="toggleSelectBtn" onclick="toggleSelectionMode()">☑️ चयन मोड</button>
         <button class="btn btn-dark" onclick="findAndCleanDuplicates()">🔍 डुप्लीकेट हटाएं</button>
         <button class="btn btn-dark" onclick="exportBackupJSON()">💾 बैकअप लें</button>
         <button class="btn btn-dark" onclick="triggerRestoreInput()">📥 रीस्टोर करें</button>
         <button class="btn btn-blue" onclick="handleAuthOrSync()">☁️ सिंक करें</button>
       </div>
+
+      <div class="category-filter-bar" id="categoryFilterBar"></div>
 
       <input type="file" id="restoreFileInput" accept=".json" style="display:none;" onchange="handleRestoreJSON(event)">
 
@@ -387,6 +462,10 @@
       <div class="modal-header">
         <h2>रचना जोड़ें</h2>
         <button class="close-btn" onclick="closeModal('uploadModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>श्रेणी (Category):</label>
+        <select id="poemCategory"></select>
       </div>
       <div class="form-group">
         <label>शीर्षक (Title):</label>
@@ -427,6 +506,10 @@
         गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर जुड़ जाएंगे।
       </p>
       <div class="form-group">
+        <label>डिफ़ॉल्ट श्रेणी (Category):</label>
+        <select id="bulkDefaultCategory"></select>
+      </div>
+      <div class="form-group">
         <label>डिफ़ॉल्ट उपलक्ष्य (Optional):</label>
         <input type="text" id="bulkDefaultOccasion" placeholder="उदा: संकलन / यादें">
       </div>
@@ -446,6 +529,22 @@
     </div>
   </div>
 
+  <!-- Category Manager Modal -->
+  <div class="modal-overlay" id="categoryModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>श्रेणियां प्रबंधित करें</h2>
+        <button class="close-btn" onclick="closeModal('categoryModal')">&times;</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom: 14px;">
+        <input type="text" id="newCategoryInput" placeholder="नई श्रेणी का नाम लिखें...">
+        <button class="btn btn-gold" onclick="addNewCategory()">+ जोड़ें</button>
+      </div>
+      <label style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; display:block;">मौजूदा श्रेणियां और फोटो संख्या:</label>
+      <div class="cat-manage-list" id="categoryManageList"></div>
+    </div>
+  </div>
+
   <!-- Bulk Edit Modal -->
   <div class="modal-overlay" id="bulkEditModal">
     <div class="modal">
@@ -456,6 +555,12 @@
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">
         जो फील्ड बदलनी हो केवल वही भरें, खाली छोड़ने पर वो वैसी ही रहेगी।
       </p>
+      <div class="form-group">
+        <label>श्रेणी बदलें:</label>
+        <select id="bulkEditCategory">
+          <option value="">-- कोई बदलाव नहीं --</option>
+        </select>
+      </div>
       <div class="form-group">
         <label>नया समर्पित नाम (Dedicated To):</label>
         <input type="text" id="bulkEditFor" placeholder="नया नाम">
@@ -495,11 +600,12 @@
     const GH_FILE = "data.json";
     const MASTER_PASSPHRASE = "Dinesh@2026";
 
-    // Clean up buggy 5MB localStorage if exists
     try { localStorage.removeItem("taoji_local_cache"); } catch(e){}
 
     let state = {
       entries: [],
+      categories: ["सामान्य", "परिवार", "यादें", "दार्शनिक", "शुभकामनाएं"],
+      activeCategoryFilter: "ALL",
       ghToken: localStorage.getItem("taoji_gh_token") || "",
       sha: "",
       selectionMode: false,
@@ -508,9 +614,9 @@
 
     let singleUploadBase64 = "";
 
-    // ==================== INDEXEDDB ENGINE (NO QUOTA LIMIT) ====================
+    // ==================== INDEXEDDB ENGINE ====================
     const DB_NAME = "TaojiAppDB";
-    const DB_VERSION = 1;
+    const DB_VERSION = 2;
     const STORE_NAME = "records";
 
     function openDB() {
@@ -532,7 +638,7 @@
         const db = await openDB();
         const tx = db.transaction(STORE_NAME, "readwrite");
         const store = tx.objectStore(STORE_NAME);
-        store.put({ key: "entries_cache", data: state.entries });
+        store.put({ key: "entries_cache", data: state.entries, categories: state.categories });
       } catch(e) {
         console.warn("DB save failed", e);
       }
@@ -545,7 +651,16 @@
           const tx = db.transaction(STORE_NAME, "readonly");
           const store = tx.objectStore(STORE_NAME);
           const req = store.get("entries_cache");
-          req.onsuccess = () => resolve(req.result ? req.result.data : []);
+          req.onsuccess = () => {
+            if (req.result) {
+              if (req.result.categories && Array.isArray(req.result.categories)) {
+                state.categories = req.result.categories;
+              }
+              resolve(req.result.data || []);
+            } else {
+              resolve([]);
+            }
+          };
           req.onerror = () => resolve([]);
         });
       } catch(e) {
@@ -553,7 +668,7 @@
       }
     }
 
-    // High performance smooth compression (750px width, 0.65 quality)
+    // High performance compression (750px width, 0.65 quality)
     function compressImageFile(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -679,9 +794,148 @@
       if (confirm(`कुल ${duplicateIds.size} डुप्लीकेट तस्वीरें मिलीं!\n\nक्या आप इन्हें हटाकर हर फोटो की 1 मूल कॉपी सुरक्षित रखना चाहते हैं?`)) {
         state.entries = state.entries.filter(e => !duplicateIds.has(e.id));
         renderEntries();
+        updateCategoryCountsAndFilters();
         await pushToGitHub();
         alert(`सफलतापूर्वक ${duplicateIds.size} डुप्लीकेट हटा दिए गए!`);
       }
+    }
+
+    // ==================== CATEGORY SYSTEM (ADD, EDIT, DELETE, COUNTS) ====================
+    function openCategoryManageModal() {
+      renderCategoryManageList();
+      openModal("categoryModal");
+    }
+
+    function renderCategoryManageList() {
+      const listCont = document.getElementById("categoryManageList");
+      listCont.innerHTML = "";
+
+      state.categories.forEach((cat, index) => {
+        const count = state.entries.filter(e => e.category === cat).length;
+        const row = document.createElement("div");
+        row.className = "cat-item-row";
+        row.innerHTML = `
+          <div>
+            <strong style="color:var(--text); font-size:0.9rem;">${cat}</strong>
+            <span style="font-size:0.75rem; color:var(--accent); margin-left:6px;">(${count} रचनाएं)</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-dark" style="padding:4px 8px; font-size:0.75rem;" onclick="editCategoryName(${index})">संपादित</button>
+            <button class="btn btn-danger" style="padding:4px 8px; font-size:0.75rem;" onclick="deleteCategory(${index})">हटाएं</button>
+          </div>
+        `;
+        listCont.appendChild(row);
+      });
+    }
+
+    async function addNewCategory() {
+      const input = document.getElementById("newCategoryInput");
+      const val = input.value.trim();
+      if (!val) return alert("कृपया श्रेणी का नाम लिखें!");
+      if (state.categories.includes(val)) return alert("यह श्रेणी पहले से मौजूद है!");
+
+      state.categories.push(val);
+      input.value = "";
+      renderCategoryManageList();
+      updateCategoryDropdowns();
+      updateCategoryCountsAndFilters();
+      await pushToGitHub();
+    }
+
+    async function editCategoryName(index) {
+      const oldCat = state.categories[index];
+      const newCat = prompt("श्रेणी का नया नाम दर्ज करें:", oldCat);
+      if (!newCat || !newCat.trim() || newCat.trim() === oldCat) return;
+
+      const trimmed = newCat.trim();
+      if (state.categories.includes(trimmed)) return alert("इस नाम की श्रेणी पहले से है!");
+
+      state.categories[index] = trimmed;
+      // Update all entries under this category
+      state.entries.forEach(e => {
+        if (e.category === oldCat) e.category = trimmed;
+      });
+
+      if (state.activeCategoryFilter === oldCat) state.activeCategoryFilter = trimmed;
+
+      renderCategoryManageList();
+      updateCategoryDropdowns();
+      renderEntries();
+      updateCategoryCountsAndFilters();
+      await pushToGitHub();
+    }
+
+    async function deleteCategory(index) {
+      const cat = state.categories[index];
+      const count = state.entries.filter(e => e.category === cat).length;
+
+      if (confirm(`क्या आप '${cat}' श्रेणी हटाना चाहते हैं? इसके अंदर की ${count} रचनाएं बिना श्रेणी ("सामान्य") में स्थानांतरित हो जाएंगी।`)) {
+        state.categories.splice(index, 1);
+        if (state.categories.length === 0) state.categories.push("सामान्य");
+
+        state.entries.forEach(e => {
+          if (e.category === cat) e.category = "सामान्य";
+        });
+
+        if (state.activeCategoryFilter === cat) state.activeCategoryFilter = "ALL";
+
+        renderCategoryManageList();
+        updateCategoryDropdowns();
+        renderEntries();
+        updateCategoryCountsAndFilters();
+        await pushToGitHub();
+      }
+    }
+
+    function updateCategoryDropdowns() {
+      const singleSelect = document.getElementById("poemCategory");
+      const bulkSelect = document.getElementById("bulkDefaultCategory");
+      const bulkEditSelect = document.getElementById("bulkEditCategory");
+
+      singleSelect.innerHTML = "";
+      bulkSelect.innerHTML = "";
+      bulkEditSelect.innerHTML = `<option value="">-- कोई बदलाव नहीं --</option>`;
+
+      state.categories.forEach(cat => {
+        singleSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+        bulkSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+        bulkEditSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+      });
+    }
+
+    function updateCategoryCountsAndFilters() {
+      // Total photo count outside
+      const totalCount = state.entries.length;
+      document.getElementById("totalStatCount").textContent = `कुल रचनाएं: ${totalCount}`;
+
+      // Category filter chips with counts
+      const bar = document.getElementById("categoryFilterBar");
+      bar.innerHTML = "";
+
+      const allActive = state.activeCategoryFilter === "ALL" ? "active" : "";
+      bar.innerHTML += `
+        <div class="cat-pill ${allActive}" onclick="setCategoryFilter('ALL')">
+          <span>सभी</span>
+          <span class="cat-pill-count">${totalCount}</span>
+        </div>
+      `;
+
+      state.categories.forEach(cat => {
+        const c = state.entries.filter(e => e.category === cat).length;
+        const active = state.activeCategoryFilter === cat ? "active" : "";
+        bar.innerHTML += `
+          <div class="cat-pill ${active}" onclick="setCategoryFilter('${cat}')">
+            <span>${cat}</span>
+            <span class="cat-pill-count">${c}</span>
+          </div>
+        `;
+      });
+    }
+
+    function setCategoryFilter(cat) {
+      state.activeCategoryFilter = cat;
+      updateCategoryCountsAndFilters();
+      filterCards();
     }
 
     // JSON Daily Backup & Restore System
@@ -695,6 +949,7 @@
         exportedAt: new Date().toISOString(),
         appName: "Kalam-e-Taoji",
         totalEntries: state.entries.length,
+        categories: state.categories,
         entries: state.entries
       };
 
@@ -726,6 +981,9 @@
             newEntries = parsed;
           } else if (parsed && Array.isArray(parsed.entries)) {
             newEntries = parsed.entries;
+            if (parsed.categories && Array.isArray(parsed.categories)) {
+              state.categories = Array.from(new Set([...state.categories, ...parsed.categories]));
+            }
           } else {
             throw new Error("अमान्य JSON फ़ाइल!");
           }
@@ -733,11 +991,16 @@
           if (confirm(`इस फ़ाइल में ${newEntries.length} रचनाएं मिलीं। क्या आप इन्हें रीस्टोर करना चाहते हैं?`)) {
             const map = new Map();
             state.entries.forEach(item => map.set(item.id, item));
-            newEntries.forEach(item => map.set(item.id, item));
+            newEntries.forEach(item => {
+              if (!item.category) item.category = "सामान्य";
+              map.set(item.id, item);
+            });
             state.entries = Array.from(map.values());
 
             await saveToLocalDB();
+            updateCategoryDropdowns();
             renderEntries();
+            updateCategoryCountsAndFilters();
             await pushToGitHub();
             alert("डेटा सफलतापूर्वक रीस्टोर हो गया!");
           }
@@ -791,9 +1054,22 @@
             const bytes = CryptoJS.AES.decrypt(rawContent, MASTER_PASSPHRASE);
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
             if (decrypted) {
-              const remoteEntries = JSON.parse(decrypted);
+              const remoteObj = JSON.parse(decrypted);
+              let remoteEntries = [];
+              if (Array.isArray(remoteObj)) {
+                remoteEntries = remoteObj;
+              } else if (remoteObj && Array.isArray(remoteObj.entries)) {
+                remoteEntries = remoteObj.entries;
+                if (remoteObj.categories && Array.isArray(remoteObj.categories)) {
+                  state.categories = Array.from(new Set([...state.categories, ...remoteObj.categories]));
+                }
+              }
+
               const map = new Map();
-              [...state.entries, ...remoteEntries].forEach(item => map.set(item.id, item));
+              [...state.entries, ...remoteEntries].forEach(item => {
+                if (!item.category) item.category = "सामान्य";
+                map.set(item.id, item);
+              });
               state.entries = Array.from(map.values());
             }
           } catch(e) {
@@ -803,7 +1079,9 @@
           statusEl.textContent = "सिंक सफल!";
           setTimeout(() => { statusEl.textContent = ""; }, 2500);
           await saveToLocalDB();
+          updateCategoryDropdowns();
           renderEntries();
+          updateCategoryCountsAndFilters();
         } else if (res.status === 404) {
           statusEl.textContent = "GitHub पर पहली बार डेटा बन रहा है...";
           await pushToGitHub();
@@ -825,7 +1103,6 @@
 
       statusEl.textContent = "क्लाउड पर सेव हो रहा है...";
       try {
-        // Fetch latest SHA first to prevent 409 conflict
         const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
         const checkRes = await fetch(url, {
           headers: {
@@ -838,11 +1115,16 @@
           state.sha = checkData.sha;
         }
 
-        const encrypted = CryptoJS.AES.encrypt(JSON.stringify(state.entries), MASTER_PASSPHRASE).toString();
+        const payload = {
+          categories: state.categories,
+          entries: state.entries
+        };
+
+        const encrypted = CryptoJS.AES.encrypt(JSON.stringify(payload), MASTER_PASSPHRASE).toString();
         const base64Content = btoa(unescape(encodeURIComponent(encrypted)));
 
         const body = {
-          message: "Update taoji records",
+          message: "Update taoji records and categories",
           content: base64Content
         };
         if (state.sha) body.sha = state.sha;
@@ -882,6 +1164,7 @@
       document.getElementById("poemText").value = "";
       document.getElementById("poemImage").value = "";
       singleUploadBase64 = "";
+      updateCategoryDropdowns();
       openModal("uploadModal");
     }
 
@@ -892,6 +1175,7 @@
       document.getElementById("bulkProgressBox").style.display = "none";
       document.getElementById("bulkStatusText").textContent = "";
       document.getElementById("startBulkBtn").disabled = false;
+      updateCategoryDropdowns();
       openModal("bulkUploadModal");
     }
 
@@ -899,6 +1183,7 @@
       const title = document.getElementById("poemTitle").value.trim() || "अनाम रचना";
       const target = document.getElementById("poemFor").value.trim();
       const occasion = document.getElementById("poemOccasion").value.trim();
+      const category = document.getElementById("poemCategory").value || "सामान्य";
       const date = document.getElementById("poemDate").value;
       const text = document.getElementById("poemText").value.trim();
 
@@ -907,6 +1192,7 @@
         title,
         target,
         occasion,
+        category,
         date,
         text,
         image: singleUploadBase64,
@@ -916,10 +1202,10 @@
       state.entries.unshift(newEntry);
       closeModal("uploadModal");
       renderEntries();
+      updateCategoryCountsAndFilters();
       await pushToGitHub();
     }
 
-    // Ultra-Fast Bulk Upload (Memory-Safe Sequential Processing)
     async function processBulkUpload() {
       const files = document.getElementById("bulkFileInput").files;
       if (!files || files.length === 0) {
@@ -930,6 +1216,7 @@
       const startBtn = document.getElementById("startBulkBtn");
       startBtn.disabled = true;
 
+      const defaultCategory = document.getElementById("bulkDefaultCategory").value || "सामान्य";
       const defaultOccasion = document.getElementById("bulkDefaultOccasion").value.trim() || "संकलन";
       const defaultDate = document.getElementById("bulkDefaultDate").value || new Date().toISOString().split("T")[0];
 
@@ -950,18 +1237,19 @@
           title: file.name.replace(/\.[^/.]+$/, ""),
           target: "",
           occasion: defaultOccasion,
+          category: defaultCategory,
           date: defaultDate,
           text: "",
           image: b64,
           timestamp: Date.now() + i
         };
         state.entries.unshift(newEntry);
-        // Small delay to allow UI refresh without freezing
         await new Promise(r => setTimeout(r, 20));
       }
 
       closeModal("bulkUploadModal");
       renderEntries();
+      updateCategoryCountsAndFilters();
       await pushToGitHub();
       alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए।`);
     }
@@ -1019,6 +1307,7 @@
         state.selectedIds.clear();
         updateSelectionUI();
         renderEntries();
+        updateCategoryCountsAndFilters();
         await pushToGitHub();
       }
     }
@@ -1028,16 +1317,19 @@
       document.getElementById("bulkEditFor").value = "";
       document.getElementById("bulkEditOccasion").value = "";
       document.getElementById("bulkEditDate").value = "";
+      updateCategoryDropdowns();
       openModal("bulkEditModal");
     }
 
     async function applyBulkEdit() {
+      const catVal = document.getElementById("bulkEditCategory").value;
       const forVal = document.getElementById("bulkEditFor").value.trim();
       const occasionVal = document.getElementById("bulkEditOccasion").value.trim();
       const dateVal = document.getElementById("bulkEditDate").value;
 
       state.entries.forEach(item => {
         if (state.selectedIds.has(item.id)) {
+          if (catVal) item.category = catVal;
           if (forVal) item.target = forVal;
           if (occasionVal) item.occasion = occasionVal;
           if (dateVal) item.date = dateVal;
@@ -1047,12 +1339,20 @@
       closeModal("bulkEditModal");
       toggleSelectionMode();
       renderEntries();
+      updateCategoryCountsAndFilters();
       await pushToGitHub();
       alert("बल्क बदलाव सुरक्षित हो गए!");
     }
 
-    // Gallery Render
-    function renderEntries(list = state.entries) {
+    // Gallery Render with Category Filtering
+    function renderEntries(list = null) {
+      if (!list) {
+        list = state.entries;
+        if (state.activeCategoryFilter !== "ALL") {
+          list = list.filter(e => e.category === state.activeCategoryFilter);
+        }
+      }
+
       const grid = document.getElementById("cardsGrid");
       grid.innerHTML = "";
 
@@ -1087,6 +1387,7 @@
           <div class="card-content">
             <div class="card-title">${item.title}</div>
             <div class="card-tags">
+              ${item.category ? `<span class="tag category">🏷️ ${item.category}</span>` : ""}
               ${item.target ? `<span class="tag">👤 ${item.target}</span>` : ""}
               ${item.occasion ? `<span class="tag occasion">✨ ${item.occasion}</span>` : ""}
             </div>
@@ -1100,17 +1401,22 @@
 
     function filterCards() {
       const q = document.getElementById("searchInput").value.toLowerCase().trim();
-      if (!q) {
-        renderEntries(state.entries);
-        return;
+      let filtered = state.entries;
+
+      if (state.activeCategoryFilter !== "ALL") {
+        filtered = filtered.filter(e => e.category === state.activeCategoryFilter);
       }
-      const filtered = state.entries.filter(item => {
-        return (item.title && item.title.toLowerCase().includes(q)) ||
-               (item.target && item.target.toLowerCase().includes(q)) ||
-               (item.occasion && item.occasion.toLowerCase().includes(q)) ||
-               (item.text && item.text.toLowerCase().includes(q)) ||
-               (item.date && item.date.includes(q));
-      });
+
+      if (q) {
+        filtered = filtered.filter(item => {
+          return (item.title && item.title.toLowerCase().includes(q)) ||
+                 (item.target && item.target.toLowerCase().includes(q)) ||
+                 (item.occasion && item.occasion.toLowerCase().includes(q)) ||
+                 (item.category && item.category.toLowerCase().includes(q)) ||
+                 (item.text && item.text.toLowerCase().includes(q)) ||
+                 (item.date && item.date.includes(q));
+        });
+      }
       renderEntries(filtered);
     }
 
@@ -1124,6 +1430,7 @@
 
       const tagsCont = document.getElementById("viewTags");
       tagsCont.innerHTML = `
+        ${item.category ? `<span class="tag category">🏷️ श्रेणी: ${item.category}</span>` : ""}
         ${item.target ? `<span class="tag">👤 समर्पित: ${item.target}</span>` : ""}
         ${item.occasion ? `<span class="tag occasion">✨ उपलक्ष्य: ${item.occasion}</span>` : ""}
       `;
@@ -1141,9 +1448,10 @@
       const delBtn = document.getElementById("deleteBtn");
       delBtn.onclick = async () => {
         if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
-          state.entries = state.entries.filter(e => !state.selectedIds.has(e.id));
+          state.entries = state.entries.filter(e => e.id !== id);
           closeModal("detailModal");
           renderEntries();
+          updateCategoryCountsAndFilters();
           await pushToGitHub();
         }
       };
@@ -1151,13 +1459,16 @@
       openModal("detailModal");
     }
 
-    // Auto load IndexedDB on start
+    // Auto-load on page start
     window.addEventListener("DOMContentLoaded", async () => {
       const cached = await loadFromLocalDB();
       if (cached && cached.length > 0) {
         state.entries = cached;
-        renderEntries();
       }
+      updateCategoryDropdowns();
+      renderEntries();
+      updateCategoryCountsAndFilters();
+
       if (state.ghToken) {
         syncWithGitHub();
       }
