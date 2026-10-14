@@ -433,7 +433,7 @@
         <button class="btn btn-dark" onclick="findAndCleanDuplicates()">🔍 डुप्लीकेट हटाएं</button>
         <button class="btn btn-dark" onclick="exportBackupJSON()">💾 बैकअप लें</button>
         <button class="btn btn-dark" onclick="triggerRestoreInput()">📥 रीस्टोर करें</button>
-        <button class="btn btn-blue" onclick="handleAuthOrSync()">☁️ सिंक करें</button>
+        <button class="btn btn-blue" id="authBtn" onclick="handleAuthOrSync()">🔐 टोकन / की</button>
       </div>
 
       <div class="category-filter-bar" id="categoryFilterBar"></div>
@@ -456,13 +456,14 @@
     <div class="grid-gallery" id="cardsGrid"></div>
   </div>
 
-  <!-- Single Upload Modal -->
+  <!-- Single / Individual Entry Modal (Works for New Entry & Single Edit) -->
   <div class="modal-overlay" id="uploadModal">
     <div class="modal">
       <div class="modal-header">
-        <h2>रचना जोड़ें</h2>
+        <h2 id="entryModalTitle">रचना जोड़ें</h2>
         <button class="close-btn" onclick="closeModal('uploadModal')">&times;</button>
       </div>
+      <input type="hidden" id="editingEntryId" value="">
       <div class="form-group">
         <label>श्रेणी (Category):</label>
         <select id="poemCategory"></select>
@@ -488,8 +489,11 @@
         <textarea id="poemText" rows="4" placeholder="कविता के शब्द लिखें..."></textarea>
       </div>
       <div class="form-group">
-        <label>फोटो / स्क्रीनशॉट:</label>
+        <label>फोटो / स्क्रीनशॉट बदलें या अपलोड करें:</label>
         <input type="file" id="poemImage" accept="image/*" onchange="handleSingleImage(event)">
+        <div id="singleEditImagePreview" style="margin-top:6px; max-height:120px; overflow:hidden; border-radius:6px; display:none;">
+          <img id="singleEditImageTag" src="" style="width:100%; height:120px; object-fit:contain; background:#000;">
+        </div>
       </div>
       <button class="btn btn-gold" style="width:100%; margin-top: 8px;" onclick="saveSingleEntry()">सहेजें (Save)</button>
     </div>
@@ -503,7 +507,7 @@
         <button class="close-btn" onclick="closeModal('bulkUploadModal')">&times;</button>
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर जुड़ जाएंगे।
+        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर सुरक्षित क्लाउड पर सिंक हो जाएंगे।
       </p>
       <div class="form-group">
         <label>डिफ़ॉल्ट श्रेणी (Category):</label>
@@ -587,9 +591,12 @@
       <div id="viewImageContainer"></div>
       <div class="card-tags" id="viewTags"></div>
       <div class="detail-poem" id="viewText"></div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px;">
         <span style="font-size: 0.75rem; color: var(--text-muted);" id="viewDate"></span>
-        <button class="btn btn-danger" id="deleteBtn">हटाएं</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-gold" id="editSingleBtn">✏️ संपादित करें</button>
+          <button class="btn btn-danger" id="deleteBtn">🗑️ हटाएं</button>
+        </div>
       </div>
     </div>
   </div>
@@ -609,7 +616,8 @@
       ghToken: localStorage.getItem("taoji_gh_token") || "",
       sha: "",
       selectionMode: false,
-      selectedIds: new Set()
+      selectedIds: new Set(),
+      isSyncing: false
     };
 
     let singleUploadBase64 = "";
@@ -702,6 +710,8 @@
       const file = e.target.files[0];
       if (file) {
         singleUploadBase64 = await compressImageFile(file);
+        document.getElementById("singleEditImageTag").src = singleUploadBase64;
+        document.getElementById("singleEditImagePreview").style.display = "block";
       }
     }
 
@@ -800,7 +810,7 @@
       }
     }
 
-    // ==================== CATEGORY SYSTEM (ADD, EDIT, DELETE, COUNTS) ====================
+    // ==================== CATEGORY SYSTEM ====================
     function openCategoryManageModal() {
       renderCategoryManageList();
       openModal("categoryModal");
@@ -851,7 +861,6 @@
       if (state.categories.includes(trimmed)) return alert("इस नाम की श्रेणी पहले से है!");
 
       state.categories[index] = trimmed;
-      // Update all entries under this category
       state.entries.forEach(e => {
         if (e.category === oldCat) e.category = trimmed;
       });
@@ -904,11 +913,9 @@
     }
 
     function updateCategoryCountsAndFilters() {
-      // Total photo count outside
       const totalCount = state.entries.length;
       document.getElementById("totalStatCount").textContent = `कुल रचनाएं: ${totalCount}`;
 
-      // Category filter chips with counts
       const bar = document.getElementById("categoryFilterBar");
       bar.innerHTML = "";
 
@@ -938,7 +945,7 @@
       filterCards();
     }
 
-    // JSON Daily Backup & Restore System
+    // ==================== JSON DAILY BACKUP & RESTORE ====================
     function exportBackupJSON() {
       if (state.entries.length === 0) {
         alert("बैकअप लेने के लिए कोई डेटा नहीं है!");
@@ -1013,28 +1020,30 @@
       reader.readAsText(file);
     }
 
-    // Live Sync & Robust GitHub Handlers
+    // ==================== REAL-TIME BACKGROUND AUTO-SYNC ====================
     async function handleAuthOrSync() {
-      if (!state.ghToken) {
-        const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
-        if (pass !== MASTER_PASSPHRASE) {
-          alert("गलत पासफ़्रेज़!");
-          return;
-        }
-
-        const token = prompt("GitHub Personal Access Token दर्ज करें:");
-        if (!token) return;
-
-        state.ghToken = token.trim();
-        localStorage.setItem("taoji_gh_token", state.ghToken);
+      const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
+      if (pass !== MASTER_PASSPHRASE) {
+        alert("गलत पासफ़्रेज़!");
+        return;
       }
 
-      await syncWithGitHub();
+      const token = prompt("GitHub Personal Access Token दर्ज करें:", state.ghToken || "");
+      if (!token) return;
+
+      state.ghToken = token.trim();
+      localStorage.setItem("taoji_gh_token", state.ghToken);
+      await syncWithGitHub(false);
+      alert("टोकन सुरक्षित हो गया! ऑटो-सिंक अब दोनों डिवाइस पर चालू है।");
     }
 
-    async function syncWithGitHub() {
+    // Silent background sync
+    async function syncWithGitHub(isBackground = true) {
+      if (!state.ghToken || state.isSyncing) return;
+      state.isSyncing = true;
+
       const statusEl = document.getElementById("syncStatus");
-      statusEl.textContent = "सिंक हो रहा है...";
+      if (!isBackground) statusEl.textContent = "क्लाउड से सिंक हो रहा है...";
 
       try {
         const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
@@ -1042,7 +1051,8 @@
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
             "Accept": "application/vnd.github.v3+json"
-          }
+          },
+          cache: "no-store"
         });
 
         if (res.status === 200) {
@@ -1065,50 +1075,59 @@
                 }
               }
 
+              // Two-way merge by ID: Prefer the most recently modified/timestamped entry
               const map = new Map();
-              [...state.entries, ...remoteEntries].forEach(item => {
-                if (!item.category) item.category = "सामान्य";
-                map.set(item.id, item);
+              state.entries.forEach(e => map.set(e.id, e));
+              remoteEntries.forEach(re => {
+                if (!re.category) re.category = "सामान्य";
+                if (!map.has(re.id) || (re.timestamp && (!map.get(re.id).timestamp || re.timestamp > map.get(re.id).timestamp))) {
+                  map.set(re.id, re);
+                }
               });
+
               state.entries = Array.from(map.values());
             }
           } catch(e) {
             console.error("Decryption error", e);
           }
 
-          statusEl.textContent = "सिंक सफल!";
-          setTimeout(() => { statusEl.textContent = ""; }, 2500);
           await saveToLocalDB();
           updateCategoryDropdowns();
           renderEntries();
           updateCategoryCountsAndFilters();
+
+          if (!isBackground) {
+            statusEl.textContent = "सिंक सफल!";
+            setTimeout(() => { statusEl.textContent = ""; }, 2000);
+          }
         } else if (res.status === 404) {
-          statusEl.textContent = "GitHub पर पहली बार डेटा बन रहा है...";
           await pushToGitHub();
-          statusEl.textContent = "";
-        } else {
-          throw new Error("HTTP " + res.status);
         }
       } catch (err) {
-        statusEl.textContent = "सिंक विफल: टोकन या इंटरनेट चेक करें";
-        alert("Sync Error: " + err.message);
+        console.warn("Background sync error:", err);
+        if (!isBackground) statusEl.textContent = "सिंक विफल: इंटरनेट या टोकन चेक करें";
+      } finally {
+        state.isSyncing = false;
       }
     }
 
+    // Auto push on any changes
     async function pushToGitHub() {
-      const statusEl = document.getElementById("syncStatus");
       await saveToLocalDB();
-
       if (!state.ghToken) return;
 
-      statusEl.textContent = "क्लाउड पर सेव हो रहा है...";
+      const statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "क्लाउड पर सुरक्षित हो रहा है...";
+
       try {
+        // Refetch latest SHA to avoid 409 conflict
         const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
         const checkRes = await fetch(url, {
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
             "Accept": "application/vnd.github.v3+json"
-          }
+          },
+          cache: "no-store"
         });
         if (checkRes.ok) {
           const checkData = await checkRes.json();
@@ -1124,7 +1143,7 @@
         const base64Content = btoa(unescape(encodeURIComponent(encrypted)));
 
         const body = {
-          message: "Update taoji records and categories",
+          message: "Auto-sync taoji records",
           content: base64Content
         };
         if (state.sha) body.sha = state.sha;
@@ -1142,13 +1161,12 @@
         if (res.ok) {
           const respData = await res.json();
           state.sha = respData.content.sha;
-          statusEl.textContent = "सफलतापूर्वक सुरक्षित हो गया!";
-          setTimeout(() => { statusEl.textContent = ""; }, 2500);
-        } else {
-          throw new Error("Update status " + res.status);
+          statusEl.textContent = "सुरक्षित हो गया!";
+          setTimeout(() => { statusEl.textContent = ""; }, 2000);
         }
       } catch (err) {
-        statusEl.textContent = "लोकल सुरक्षित, GitHub अपडेट में एरर: " + err.message;
+        console.warn("Push error", err);
+        statusEl.textContent = "लोकल सुरक्षित (क्लाउड पेंडिंग)";
       }
     }
 
@@ -1157,14 +1175,45 @@
     function closeModal(id) { document.getElementById(id).classList.remove("open"); }
 
     function openUploadModal() {
+      document.getElementById("entryModalTitle").textContent = "रचना जोड़ें";
+      document.getElementById("editingEntryId").value = "";
       document.getElementById("poemTitle").value = "";
       document.getElementById("poemFor").value = "";
       document.getElementById("poemOccasion").value = "";
       document.getElementById("poemDate").value = new Date().toISOString().split("T")[0];
       document.getElementById("poemText").value = "";
       document.getElementById("poemImage").value = "";
+      document.getElementById("singleEditImagePreview").style.display = "none";
       singleUploadBase64 = "";
       updateCategoryDropdowns();
+      openModal("uploadModal");
+    }
+
+    function openEditEntryModal(id) {
+      const item = state.entries.find(e => e.id === id);
+      if (!item) return;
+
+      closeModal("detailModal");
+      updateCategoryDropdowns();
+
+      document.getElementById("entryModalTitle").textContent = "रचना संपादित करें";
+      document.getElementById("editingEntryId").value = item.id;
+      document.getElementById("poemCategory").value = item.category || "सामान्य";
+      document.getElementById("poemTitle").value = item.title || "";
+      document.getElementById("poemFor").value = item.target || "";
+      document.getElementById("poemOccasion").value = item.occasion || "";
+      document.getElementById("poemDate").value = item.date || "";
+      document.getElementById("poemText").value = item.text || "";
+      document.getElementById("poemImage").value = "";
+
+      singleUploadBase64 = item.image || "";
+      if (item.image) {
+        document.getElementById("singleEditImageTag").src = item.image;
+        document.getElementById("singleEditImagePreview").style.display = "block";
+      } else {
+        document.getElementById("singleEditImagePreview").style.display = "none";
+      }
+
       openModal("uploadModal");
     }
 
@@ -1180,6 +1229,7 @@
     }
 
     async function saveSingleEntry() {
+      const editId = document.getElementById("editingEntryId").value;
       const title = document.getElementById("poemTitle").value.trim() || "अनाम रचना";
       const target = document.getElementById("poemFor").value.trim();
       const occasion = document.getElementById("poemOccasion").value.trim();
@@ -1187,19 +1237,35 @@
       const date = document.getElementById("poemDate").value;
       const text = document.getElementById("poemText").value.trim();
 
-      const newEntry = {
-        id: "tao_" + Date.now() + "_" + Math.floor(Math.random()*1000),
-        title,
-        target,
-        occasion,
-        category,
-        date,
-        text,
-        image: singleUploadBase64,
-        timestamp: Date.now()
-      };
+      if (editId) {
+        // Edit Existing Entry
+        const idx = state.entries.findIndex(e => e.id === editId);
+        if (idx !== -1) {
+          state.entries[idx].title = title;
+          state.entries[idx].target = target;
+          state.entries[idx].occasion = occasion;
+          state.entries[idx].category = category;
+          state.entries[idx].date = date;
+          state.entries[idx].text = text;
+          if (singleUploadBase64) state.entries[idx].image = singleUploadBase64;
+          state.entries[idx].timestamp = Date.now();
+        }
+      } else {
+        // Create New Entry
+        const newEntry = {
+          id: "tao_" + Date.now() + "_" + Math.floor(Math.random()*1000),
+          title,
+          target,
+          occasion,
+          category,
+          date,
+          text,
+          image: singleUploadBase64,
+          timestamp: Date.now()
+        };
+        state.entries.unshift(newEntry);
+      }
 
-      state.entries.unshift(newEntry);
       closeModal("uploadModal");
       renderEntries();
       updateCategoryCountsAndFilters();
@@ -1251,7 +1317,7 @@
       renderEntries();
       updateCategoryCountsAndFilters();
       await pushToGitHub();
-      alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए।`);
+      alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए और क्लाउड पर सिंक हो गए।`);
     }
 
     // Selection & Bulk Actions
@@ -1333,6 +1399,7 @@
           if (forVal) item.target = forVal;
           if (occasionVal) item.occasion = occasionVal;
           if (dateVal) item.date = dateVal;
+          item.timestamp = Date.now();
         }
       });
 
@@ -1344,7 +1411,7 @@
       alert("बल्क बदलाव सुरक्षित हो गए!");
     }
 
-    // Gallery Render with Category Filtering
+    // Gallery Render
     function renderEntries(list = null) {
       if (!list) {
         list = state.entries;
@@ -1445,6 +1512,10 @@
 
       document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
       
+      // Edit button handler
+      document.getElementById("editSingleBtn").onclick = () => openEditEntryModal(id);
+
+      // Delete button handler
       const delBtn = document.getElementById("deleteBtn");
       delBtn.onclick = async () => {
         if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
@@ -1459,7 +1530,7 @@
       openModal("detailModal");
     }
 
-    // Auto-load on page start
+    // ==================== AUTO-SYNC LIFECYCLE LISTENERS ====================
     window.addEventListener("DOMContentLoaded", async () => {
       const cached = await loadFromLocalDB();
       if (cached && cached.length > 0) {
@@ -1469,9 +1540,25 @@
       renderEntries();
       updateCategoryCountsAndFilters();
 
+      // Initial Silent Sync
       if (state.ghToken) {
-        syncWithGitHub();
+        syncWithGitHub(true);
       }
+
+      // Auto poll every 20 seconds
+      setInterval(() => {
+        if (state.ghToken) syncWithGitHub(true);
+      }, 20000);
+
+      // Auto sync when app / tab comes to foreground
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && state.ghToken) {
+          syncWithGitHub(true);
+        }
+      });
+      window.addEventListener("focus", () => {
+        if (state.ghToken) syncWithGitHub(true);
+      });
     });
   </script>
 </body>
