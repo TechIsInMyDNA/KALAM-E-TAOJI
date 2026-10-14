@@ -433,7 +433,7 @@
         <button class="btn btn-dark" onclick="findAndCleanDuplicates()">🔍 डुप्लीकेट हटाएं</button>
         <button class="btn btn-dark" onclick="exportBackupJSON()">💾 बैकअप लें</button>
         <button class="btn btn-dark" onclick="triggerRestoreInput()">📥 रीस्टोर करें</button>
-        <button class="btn btn-blue" id="authBtn" onclick="handleAuthOrSync()">🔐 टोकन / की</button>
+        <button class="btn btn-blue" id="authBtn" onclick="handleAuthOrSync()">☁️ सिंक करें / टोकन</button>
       </div>
 
       <div class="category-filter-bar" id="categoryFilterBar"></div>
@@ -456,7 +456,7 @@
     <div class="grid-gallery" id="cardsGrid"></div>
   </div>
 
-  <!-- Single / Individual Entry Modal (Works for New Entry & Single Edit) -->
+  <!-- Single / Individual Entry Modal -->
   <div class="modal-overlay" id="uploadModal">
     <div class="modal">
       <div class="modal-header">
@@ -507,7 +507,7 @@
         <button class="close-btn" onclick="closeModal('bulkUploadModal')">&times;</button>
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर सुरक्षित क्लाउड पर सिंक हो जाएंगे।
+        गैलरी से पुराने सभी फोटो/स्क्रीनशॉट एक बार में सेलेक्ट करें। सब अपने आप कंप्रेस होकर क्लाउड पर सिंक हो जाएंगे।
       </p>
       <div class="form-group">
         <label>डिफ़ॉल्ट श्रेणी (Category):</label>
@@ -607,8 +607,6 @@
     const GH_FILE = "data.json";
     const MASTER_PASSPHRASE = "Dinesh@2026";
 
-    try { localStorage.removeItem("taoji_local_cache"); } catch(e){}
-
     let state = {
       entries: [],
       categories: ["सामान्य", "परिवार", "यादें", "दार्शनिक", "शुभकामनाएं"],
@@ -676,7 +674,7 @@
       }
     }
 
-    // High performance compression (750px width, 0.65 quality)
+    // High performance compression
     function compressImageFile(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -1020,7 +1018,7 @@
       reader.readAsText(file);
     }
 
-    // ==================== REAL-TIME BACKGROUND AUTO-SYNC ====================
+    // ==================== ROBUST LARGE-FILE GITHUB SYNC (BLOB / RAW ENGINE) ====================
     async function handleAuthOrSync() {
       const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
       if (pass !== MASTER_PASSPHRASE) {
@@ -1028,26 +1026,25 @@
         return;
       }
 
-      const token = prompt("GitHub Personal Access Token दर्ज करें:", state.ghToken || "");
+      const token = prompt("GitHub Personal Access Token दर्ज करें (Repo Read/Write):", state.ghToken || "");
       if (!token) return;
 
       state.ghToken = token.trim();
       localStorage.setItem("taoji_gh_token", state.ghToken);
       await syncWithGitHub(false);
-      alert("टोकन सुरक्षित हो गया! ऑटो-सिंक अब दोनों डिवाइस पर चालू है।");
     }
 
-    // Silent background sync
+    // Large-file safe sync using Raw Blob endpoint to bypass 1MB limit
     async function syncWithGitHub(isBackground = true) {
       if (!state.ghToken || state.isSyncing) return;
       state.isSyncing = true;
 
       const statusEl = document.getElementById("syncStatus");
-      if (!isBackground) statusEl.textContent = "क्लाउड से सिंक हो रहा है...";
+      if (!isBackground) statusEl.textContent = "GitHub से लाइव डेटा लाया जा रहा है...";
 
       try {
-        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
-        const res = await fetch(url, {
+        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        const metaRes = await fetch(metaUrl, {
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
             "Accept": "application/vnd.github.v3+json"
@@ -1055,13 +1052,27 @@
           cache: "no-store"
         });
 
-        if (res.status === 200) {
-          const data = await res.json();
-          state.sha = data.sha;
-          const rawContent = decodeURIComponent(escape(atob(data.content)));
+        if (metaRes.status === 200) {
+          const metaData = await metaRes.json();
+          state.sha = metaData.sha;
 
-          try {
-            const bytes = CryptoJS.AES.decrypt(rawContent, MASTER_PASSPHRASE);
+          let rawEncrypted = "";
+
+          // If file is > 1MB, GitHub omits content field. Use git blob raw stream instead!
+          if (!metaData.content && metaData.git_url) {
+            const blobRes = await fetch(metaData.git_url, {
+              headers: {
+                "Authorization": `Bearer ${state.ghToken}`,
+                "Accept": "application/vnd.github.v3.raw"
+              }
+            });
+            rawEncrypted = await blobRes.text();
+          } else if (metaData.content) {
+            rawEncrypted = decodeURIComponent(escape(atob(metaData.content.replace(/\s/g, ''))));
+          }
+
+          if (rawEncrypted) {
+            const bytes = CryptoJS.AES.decrypt(rawEncrypted, MASTER_PASSPHRASE);
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
             if (decrypted) {
               const remoteObj = JSON.parse(decrypted);
@@ -1075,7 +1086,7 @@
                 }
               }
 
-              // Two-way merge by ID: Prefer the most recently modified/timestamped entry
+              // Two-way merge
               const map = new Map();
               state.entries.forEach(e => map.set(e.id, e));
               remoteEntries.forEach(re => {
@@ -1087,8 +1098,6 @@
 
               state.entries = Array.from(map.values());
             }
-          } catch(e) {
-            console.error("Decryption error", e);
           }
 
           await saveToLocalDB();
@@ -1098,20 +1107,36 @@
 
           if (!isBackground) {
             statusEl.textContent = "सिंक सफल!";
+            alert(`सिंक सफल! कुल ${state.entries.length} रचनाएं लोड हो गईं।`);
             setTimeout(() => { statusEl.textContent = ""; }, 2000);
           }
-        } else if (res.status === 404) {
+        } else if (metaRes.status === 404) {
           await pushToGitHub();
+        } else {
+          throw new Error("HTTP " + metaRes.status);
         }
       } catch (err) {
-        console.warn("Background sync error:", err);
-        if (!isBackground) statusEl.textContent = "सिंक विफल: इंटरनेट या टोकन चेक करें";
+        console.warn("Sync error:", err);
+        if (!isBackground) {
+          statusEl.textContent = "सिंक विफल: टोकन या इंटरनेट चेक करें";
+          alert("सिंक एरर: " + err.message);
+        }
       } finally {
         state.isSyncing = false;
       }
     }
 
-    // Auto push on any changes
+    // Large-file chunked safe base64 converter
+    function safeStringToBase64(str) {
+      const utf8Bytes = new TextEncoder().encode(str);
+      let binary = "";
+      const len = utf8Bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(utf8Bytes[i]);
+      }
+      return btoa(binary);
+    }
+
     async function pushToGitHub() {
       await saveToLocalDB();
       if (!state.ghToken) return;
@@ -1120,9 +1145,8 @@
       statusEl.textContent = "क्लाउड पर सुरक्षित हो रहा है...";
 
       try {
-        // Refetch latest SHA to avoid 409 conflict
-        const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
-        const checkRes = await fetch(url, {
+        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        const checkRes = await fetch(metaUrl, {
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
             "Accept": "application/vnd.github.v3+json"
@@ -1140,7 +1164,7 @@
         };
 
         const encrypted = CryptoJS.AES.encrypt(JSON.stringify(payload), MASTER_PASSPHRASE).toString();
-        const base64Content = btoa(unescape(encodeURIComponent(encrypted)));
+        const base64Content = safeStringToBase64(encrypted);
 
         const body = {
           message: "Auto-sync taoji records",
@@ -1148,7 +1172,7 @@
         };
         if (state.sha) body.sha = state.sha;
 
-        const res = await fetch(url, {
+        const res = await fetch(metaUrl, {
           method: "PUT",
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
@@ -1163,6 +1187,8 @@
           state.sha = respData.content.sha;
           statusEl.textContent = "सुरक्षित हो गया!";
           setTimeout(() => { statusEl.textContent = ""; }, 2000);
+        } else {
+          throw new Error("GitHub error code: " + res.status);
         }
       } catch (err) {
         console.warn("Push error", err);
@@ -1238,7 +1264,6 @@
       const text = document.getElementById("poemText").value.trim();
 
       if (editId) {
-        // Edit Existing Entry
         const idx = state.entries.findIndex(e => e.id === editId);
         if (idx !== -1) {
           state.entries[idx].title = title;
@@ -1251,7 +1276,6 @@
           state.entries[idx].timestamp = Date.now();
         }
       } else {
-        // Create New Entry
         const newEntry = {
           id: "tao_" + Date.now() + "_" + Math.floor(Math.random()*1000),
           title,
@@ -1512,14 +1536,12 @@
 
       document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
       
-      // Edit button handler
       document.getElementById("editSingleBtn").onclick = () => openEditEntryModal(id);
 
-      // Delete button handler
       const delBtn = document.getElementById("deleteBtn");
       delBtn.onclick = async () => {
         if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
-          state.entries = state.entries.filter(e => e.id !== id);
+          state.entries = state.entries.filter(e => !state.selectedIds.has(e.id));
           closeModal("detailModal");
           renderEntries();
           updateCategoryCountsAndFilters();
@@ -1540,17 +1562,14 @@
       renderEntries();
       updateCategoryCountsAndFilters();
 
-      // Initial Silent Sync
       if (state.ghToken) {
         syncWithGitHub(true);
       }
 
-      // Auto poll every 20 seconds
       setInterval(() => {
         if (state.ghToken) syncWithGitHub(true);
       }, 20000);
 
-      // Auto sync when app / tab comes to foreground
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden && state.ghToken) {
           syncWithGitHub(true);
