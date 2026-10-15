@@ -674,7 +674,6 @@
       }
     }
 
-    // High performance compression
     function compressImageFile(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -713,7 +712,6 @@
       }
     }
 
-    // 100% Accurate Visual Fingerprint Generator
     function generateVisualFingerprint(base64Str) {
       return new Promise((resolve) => {
         if (!base64Str) return resolve(null);
@@ -819,7 +817,7 @@
       listCont.innerHTML = "";
 
       state.categories.forEach((cat, index) => {
-        const count = state.entries.filter(e => e.category === cat).length;
+        const count = state.entries.filter(e => (e.category || "सामान्य") === cat).length;
         const row = document.createElement("div");
         row.className = "cat-item-row";
         row.innerHTML = `
@@ -860,7 +858,7 @@
 
       state.categories[index] = trimmed;
       state.entries.forEach(e => {
-        if (e.category === oldCat) e.category = trimmed;
+        if ((e.category || "सामान्य") === oldCat) e.category = trimmed;
       });
 
       if (state.activeCategoryFilter === oldCat) state.activeCategoryFilter = trimmed;
@@ -874,7 +872,7 @@
 
     async function deleteCategory(index) {
       const cat = state.categories[index];
-      const count = state.entries.filter(e => e.category === cat).length;
+      const count = state.entries.filter(e => (e.category || "सामान्य") === cat).length;
 
       if (confirm(`क्या आप '${cat}' श्रेणी हटाना चाहते हैं? इसके अंदर की ${count} रचनाएं बिना श्रेणी ("सामान्य") में स्थानांतरित हो जाएंगी।`)) {
         state.categories.splice(index, 1);
@@ -926,7 +924,7 @@
       `;
 
       state.categories.forEach(cat => {
-        const c = state.entries.filter(e => e.category === cat).length;
+        const c = state.entries.filter(e => (e.category || "सामान्य") === cat).length;
         const active = state.activeCategoryFilter === cat ? "active" : "";
         bar.innerHTML += `
           <div class="cat-pill ${active}" onclick="setCategoryFilter('${cat}')">
@@ -995,10 +993,10 @@
 
           if (confirm(`इस फ़ाइल में ${newEntries.length} रचनाएं मिलीं। क्या आप इन्हें रीस्टोर करना चाहते हैं?`)) {
             const map = new Map();
-            state.entries.forEach(item => map.set(item.id, item));
+            state.entries.forEach(item => map.set(String(item.id), item));
             newEntries.forEach(item => {
               if (!item.category) item.category = "सामान्य";
-              map.set(item.id, item);
+              map.set(String(item.id), item);
             });
             state.entries = Array.from(map.values());
 
@@ -1018,7 +1016,7 @@
       reader.readAsText(file);
     }
 
-    // ==================== ROBUST LARGE-FILE GITHUB SYNC (BLOB / RAW ENGINE) ====================
+    // ==================== ROBUST GITHUB SYNC (FIXED PC VS MOBILE MISMATCH) ====================
     async function handleAuthOrSync() {
       const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
       if (pass !== MASTER_PASSPHRASE) {
@@ -1034,7 +1032,6 @@
       await syncWithGitHub(false);
     }
 
-    // Large-file safe sync using Raw Blob endpoint to bypass 1MB limit
     async function syncWithGitHub(isBackground = true) {
       if (!state.ghToken || state.isSyncing) return;
       state.isSyncing = true;
@@ -1057,8 +1054,6 @@
           state.sha = metaData.sha;
 
           let rawEncrypted = "";
-
-          // If file is > 1MB, GitHub omits content field. Use git blob raw stream instead!
           if (!metaData.content && metaData.git_url) {
             const blobRes = await fetch(metaData.git_url, {
               headers: {
@@ -1086,13 +1081,25 @@
                 }
               }
 
-              // Two-way merge
+              // REMOTE FIRST MERGE: Overwrite stale local category with remote's categorized entries
               const map = new Map();
-              state.entries.forEach(e => map.set(e.id, e));
               remoteEntries.forEach(re => {
                 if (!re.category) re.category = "सामान्य";
-                if (!map.has(re.id) || (re.timestamp && (!map.get(re.id).timestamp || re.timestamp > map.get(re.id).timestamp))) {
-                  map.set(re.id, re);
+                map.set(String(re.id), re);
+              });
+
+              // Add newly created un-synced local entries without overwriting remote's categories
+              state.entries.forEach(le => {
+                const sId = String(le.id);
+                if (!map.has(sId)) {
+                  if (!le.category) le.category = "सामान्य";
+                  map.set(sId, le);
+                } else {
+                  // If local entry is newer by timestamp, accept local, else prefer remote
+                  const remoteItem = map.get(sId);
+                  if (le.timestamp && remoteItem.timestamp && le.timestamp > remoteItem.timestamp) {
+                    map.set(sId, le);
+                  }
                 }
               });
 
@@ -1126,7 +1133,6 @@
       }
     }
 
-    // Large-file chunked safe base64 converter
     function safeStringToBase64(str) {
       const utf8Bytes = new TextEncoder().encode(str);
       let binary = "";
@@ -1216,7 +1222,7 @@
     }
 
     function openEditEntryModal(id) {
-      const item = state.entries.find(e => e.id === id);
+      const item = state.entries.find(e => String(e.id) === String(id));
       if (!item) return;
 
       closeModal("detailModal");
@@ -1264,7 +1270,7 @@
       const text = document.getElementById("poemText").value.trim();
 
       if (editId) {
-        const idx = state.entries.findIndex(e => e.id === editId);
+        const idx = state.entries.findIndex(e => String(e.id) === String(editId));
         if (idx !== -1) {
           state.entries[idx].title = title;
           state.entries[idx].target = target;
@@ -1344,7 +1350,7 @@
       alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए और क्लाउड पर सिंक हो गए।`);
     }
 
-    // Selection & Bulk Actions
+    // ==================== SELECTION & BULK ACTIONS (FIXED CATEGORY MOVE) ====================
     function toggleSelectionMode() {
       state.selectionMode = !state.selectionMode;
       state.selectedIds.clear();
@@ -1357,10 +1363,11 @@
 
     function toggleSelectCard(id, e) {
       if (e) e.stopPropagation();
-      if (state.selectedIds.has(id)) {
-        state.selectedIds.delete(id);
+      const sId = String(id);
+      if (state.selectedIds.has(sId)) {
+        state.selectedIds.delete(sId);
       } else {
-        state.selectedIds.add(id);
+        state.selectedIds.add(sId);
       }
       updateSelectionUI();
     }
@@ -1369,7 +1376,7 @@
       if (state.selectedIds.size === state.entries.length) {
         state.selectedIds.clear();
       } else {
-        state.entries.forEach(e => state.selectedIds.add(e.id));
+        state.entries.forEach(e => state.selectedIds.add(String(e.id)));
       }
       updateSelectionUI();
       renderEntries();
@@ -1378,7 +1385,7 @@
     function updateSelectionUI() {
       document.getElementById("selectedCountText").textContent = `${state.selectedIds.size} चुने गए`;
       document.querySelectorAll(".card").forEach(card => {
-        const id = card.dataset.id;
+        const id = String(card.dataset.id);
         const cb = card.querySelector(".card-checkbox");
         if (state.selectedIds.has(id)) {
           card.classList.add("selected");
@@ -1393,7 +1400,7 @@
     async function bulkDeleteSelected() {
       if (state.selectedIds.size === 0) return alert("कोई रचना नहीं चुनी गई!");
       if (confirm(`क्या आप चुनी हुई ${state.selectedIds.size} रचनाएं हटाना चाहते हैं?`)) {
-        state.entries = state.entries.filter(e => !state.selectedIds.has(e.id));
+        state.entries = state.entries.filter(e => !state.selectedIds.has(String(e.id)));
         state.selectedIds.clear();
         updateSelectionUI();
         renderEntries();
@@ -1417,13 +1424,17 @@
       const occasionVal = document.getElementById("bulkEditOccasion").value.trim();
       const dateVal = document.getElementById("bulkEditDate").value;
 
+      let changedCount = 0;
       state.entries.forEach(item => {
-        if (state.selectedIds.has(item.id)) {
-          if (catVal) item.category = catVal;
+        if (state.selectedIds.has(String(item.id))) {
+          if (catVal && catVal.trim() !== "") {
+            item.category = catVal.trim();
+          }
           if (forVal) item.target = forVal;
           if (occasionVal) item.occasion = occasionVal;
           if (dateVal) item.date = dateVal;
           item.timestamp = Date.now();
+          changedCount++;
         }
       });
 
@@ -1432,15 +1443,15 @@
       renderEntries();
       updateCategoryCountsAndFilters();
       await pushToGitHub();
-      alert("बल्क बदलाव सुरक्षित हो गए!");
+      alert(`${changedCount} रचनाएं सफलतापूर्वक नई श्रेणी/विवरण में स्थानांतरित हो गईं!`);
     }
 
-    // Gallery Render
+    // ==================== GALLERY RENDER ====================
     function renderEntries(list = null) {
       if (!list) {
         list = state.entries;
         if (state.activeCategoryFilter !== "ALL") {
-          list = list.filter(e => e.category === state.activeCategoryFilter);
+          list = list.filter(e => (e.category || "सामान्य") === state.activeCategoryFilter);
         }
       }
 
@@ -1449,36 +1460,37 @@
 
       if (list.length === 0) {
         grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">
-          कोई रचना नहीं मिली। ऊपर '+ नई रचना' या '📸 बल्क फोटो' से शुरुआत करें।
+          कोई रचना नहीं मिली।
         </div>`;
         return;
       }
 
       list.forEach(item => {
         const card = document.createElement("div");
-        card.className = "card" + (state.selectedIds.has(item.id) ? " selected" : "");
-        card.dataset.id = item.id;
+        const sId = String(item.id);
+        card.className = "card" + (state.selectedIds.has(sId) ? " selected" : "");
+        card.dataset.id = sId;
 
         card.onclick = () => {
           if (state.selectionMode) {
-            toggleSelectCard(item.id);
+            toggleSelectCard(sId);
           } else {
-            openDetailModal(item.id);
+            openDetailModal(sId);
           }
         };
 
-        const isChecked = state.selectedIds.has(item.id) ? "checked" : "";
+        const isChecked = state.selectedIds.has(sId) ? "checked" : "";
         let imgHtml = item.image 
           ? `<div class="card-img-wrapper"><img src="${item.image}" alt="${item.title}" loading="lazy"></div>`
           : `<div class="card-img-wrapper"><span style="color:var(--text-muted); font-size:0.8rem;">हस्तलिखित शब्द</span></div>`;
 
         card.innerHTML = `
-          <input type="checkbox" class="card-checkbox" ${isChecked} onclick="toggleSelectCard('${item.id}', event)">
+          <input type="checkbox" class="card-checkbox" ${isChecked} onclick="toggleSelectCard('${sId}', event)">
           ${imgHtml}
           <div class="card-content">
             <div class="card-title">${item.title}</div>
             <div class="card-tags">
-              ${item.category ? `<span class="tag category">🏷️ ${item.category}</span>` : ""}
+              <span class="tag category">🏷️ ${item.category || "सामान्य"}</span>
               ${item.target ? `<span class="tag">👤 ${item.target}</span>` : ""}
               ${item.occasion ? `<span class="tag occasion">✨ ${item.occasion}</span>` : ""}
             </div>
@@ -1495,7 +1507,7 @@
       let filtered = state.entries;
 
       if (state.activeCategoryFilter !== "ALL") {
-        filtered = filtered.filter(e => e.category === state.activeCategoryFilter);
+        filtered = filtered.filter(e => (e.category || "सामान्य") === state.activeCategoryFilter);
       }
 
       if (q) {
@@ -1503,7 +1515,7 @@
           return (item.title && item.title.toLowerCase().includes(q)) ||
                  (item.target && item.target.toLowerCase().includes(q)) ||
                  (item.occasion && item.occasion.toLowerCase().includes(q)) ||
-                 (item.category && item.category.toLowerCase().includes(q)) ||
+                 ((item.category || "सामान्य").toLowerCase().includes(q)) ||
                  (item.text && item.text.toLowerCase().includes(q)) ||
                  (item.date && item.date.includes(q));
         });
@@ -1512,7 +1524,7 @@
     }
 
     function openDetailModal(id) {
-      const item = state.entries.find(e => e.id === id);
+      const item = state.entries.find(e => String(e.id) === String(id));
       if (!item) return;
 
       document.getElementById("viewTitle").textContent = item.title;
@@ -1521,7 +1533,7 @@
 
       const tagsCont = document.getElementById("viewTags");
       tagsCont.innerHTML = `
-        ${item.category ? `<span class="tag category">🏷️ श्रेणी: ${item.category}</span>` : ""}
+        <span class="tag category">🏷️ श्रेणी: ${item.category || "सामान्य"}</span>
         ${item.target ? `<span class="tag">👤 समर्पित: ${item.target}</span>` : ""}
         ${item.occasion ? `<span class="tag occasion">✨ उपलक्ष्य: ${item.occasion}</span>` : ""}
       `;
@@ -1541,7 +1553,7 @@
       const delBtn = document.getElementById("deleteBtn");
       delBtn.onclick = async () => {
         if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
-          state.entries = state.entries.filter(e => !state.selectedIds.has(e.id));
+          state.entries = state.entries.filter(e => String(e.id) !== String(id));
           closeModal("detailModal");
           renderEntries();
           updateCategoryCountsAndFilters();
