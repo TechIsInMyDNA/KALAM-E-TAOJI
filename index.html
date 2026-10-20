@@ -21,6 +21,7 @@
       --danger: #f85149;
       --success: #2ea043;
       --primary: #1f6feb;
+      --whatsapp: #25d366;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -164,6 +165,8 @@
     .btn-dark { background: #21262d; color: var(--text); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-blue { background: var(--primary); color: #fff; }
+    .btn-whatsapp { background: var(--whatsapp); color: #fff; font-weight: 700; }
+    .btn-whatsapp:hover { background: #20ba59; }
 
     .bulk-bar {
       display: none;
@@ -581,7 +584,7 @@
     </div>
   </div>
 
-  <!-- Detail Viewer Modal -->
+  <!-- Detail Viewer Modal (Added WhatsApp Share Button) -->
   <div class="modal-overlay" id="detailModal">
     <div class="modal detail-view">
       <div class="modal-header">
@@ -591,9 +594,12 @@
       <div id="viewImageContainer"></div>
       <div class="card-tags" id="viewTags"></div>
       <div class="detail-poem" id="viewText"></div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px;">
+      
+      <!-- Action Bar with WhatsApp Share -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; flex-wrap: wrap;">
         <span style="font-size: 0.75rem; color: var(--text-muted);" id="viewDate"></span>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="btn btn-whatsapp" id="whatsappShareBtn">🟢 WhatsApp शेयर</button>
           <button class="btn btn-gold" id="editSingleBtn">✏️ संपादित करें</button>
           <button class="btn btn-danger" id="deleteBtn">🗑️ हटाएं</button>
         </div>
@@ -1016,7 +1022,7 @@
       reader.readAsText(file);
     }
 
-    // ==================== ROBUST GITHUB SYNC (FIXED PC VS MOBILE MISMATCH) ====================
+    // ==================== ROBUST GITHUB SYNC ====================
     async function handleAuthOrSync() {
       const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
       if (pass !== MASTER_PASSPHRASE) {
@@ -1081,21 +1087,18 @@
                 }
               }
 
-              // REMOTE FIRST MERGE: Overwrite stale local category with remote's categorized entries
               const map = new Map();
               remoteEntries.forEach(re => {
                 if (!re.category) re.category = "सामान्य";
                 map.set(String(re.id), re);
               });
 
-              // Add newly created un-synced local entries without overwriting remote's categories
               state.entries.forEach(le => {
                 const sId = String(le.id);
                 if (!map.has(sId)) {
                   if (!le.category) le.category = "सामान्य";
                   map.set(sId, le);
                 } else {
-                  // If local entry is newer by timestamp, accept local, else prefer remote
                   const remoteItem = map.get(sId);
                   if (le.timestamp && remoteItem.timestamp && le.timestamp > remoteItem.timestamp) {
                     map.set(sId, le);
@@ -1350,7 +1353,7 @@
       alert(`बधाई हो! ${total} फोटो सुरक्षित जुड़ गए और क्लाउड पर सिंक हो गए।`);
     }
 
-    // ==================== SELECTION & BULK ACTIONS (FIXED CATEGORY MOVE) ====================
+    // ==================== SELECTION & BULK ACTIONS ====================
     function toggleSelectionMode() {
       state.selectionMode = !state.selectionMode;
       state.selectedIds.clear();
@@ -1523,6 +1526,47 @@
       renderEntries(filtered);
     }
 
+    // ==================== WHATSAPP SHARING LOGIC ====================
+    async function shareEntryViaWhatsApp(item) {
+      const title = item.title || "कलम-ए-ताऊजी की रचना";
+      const category = item.category ? `🏷️ श्रेणी: ${item.category}\n` : "";
+      const target = item.target ? `👤 समर्पित: ${item.target}\n` : "";
+      const occasion = item.occasion ? `✨ उपलक्ष्य: ${item.occasion}\n` : "";
+      const date = item.date ? `📅 तारीख: ${item.date}\n` : "";
+      const text = item.text ? `\n"${item.text}"\n` : "";
+
+      const shareText = `*${title}*\n${category}${target}${occasion}${date}${text}\n— _कलम-ए-ताऊजी_`;
+
+      // Check if browser supports Web Share API with image file
+      if (item.image && navigator.canShare) {
+        try {
+          const res = await fetch(item.image);
+          const blob = await res.blob();
+          const file = new File([blob], `${title.replace(/\s+/g, '_')}.jpg`, { type: "image/jpeg" });
+
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: title,
+              text: shareText,
+              files: [file]
+            });
+            return;
+          }
+        } catch (e) {
+          console.warn("Direct file share not supported or cancelled:", e);
+        }
+      }
+
+      // Fallback: Open WhatsApp directly with prefilled formatted text
+      const encodedMsg = encodeURIComponent(shareText);
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const whatsappUrl = isMobile 
+        ? `whatsapp://send?text=${encodedMsg}` 
+        : `https://api.whatsapp.com/send?text=${encodedMsg}`;
+
+      window.open(whatsappUrl, "_blank");
+    }
+
     function openDetailModal(id) {
       const item = state.entries.find(e => String(e.id) === String(id));
       if (!item) return;
@@ -1548,6 +1592,9 @@
 
       document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
       
+      // WhatsApp Share button hook
+      document.getElementById("whatsappShareBtn").onclick = () => shareEntryViaWhatsApp(item);
+
       document.getElementById("editSingleBtn").onclick = () => openEditEntryModal(id);
 
       const delBtn = document.getElementById("deleteBtn");
