@@ -584,7 +584,7 @@
     </div>
   </div>
 
-  <!-- Detail Viewer Modal (Added WhatsApp Share Button) -->
+  <!-- Detail Viewer Modal (Direct WhatsApp Share Button Integrated) -->
   <div class="modal-overlay" id="detailModal">
     <div class="modal detail-view">
       <div class="modal-header">
@@ -595,7 +595,7 @@
       <div class="card-tags" id="viewTags"></div>
       <div class="detail-poem" id="viewText"></div>
       
-      <!-- Action Bar with WhatsApp Share -->
+      <!-- Action Buttons with Functional WhatsApp Button -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; flex-wrap: wrap;">
         <span style="font-size: 0.75rem; color: var(--text-muted);" id="viewDate"></span>
         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1526,36 +1526,98 @@
       renderEntries(filtered);
     }
 
-    // Only Image Share via WhatsApp / Native Share
+    // Helper: Base64 to Blob without fetch error
+    function base64ToBlob(base64Data, contentType = "image/jpeg") {
+      const parts = base64Data.split(";base64,");
+      const raw = window.atob(parts.length > 1 ? parts[1] : parts[0]);
+      const rawLength = raw.length;
+      const uInt8Array = new Uint8Array(rawLength);
+      for (let i = 0; i < rawLength; ++i) {
+        uInt8Array[i] = raw.charCodeAt(i);
+      }
+      return new Blob([uInt8Array], { type: contentType });
+    }
+
+    // ONLY IMAGE SHARE VIA WHATSAPP (Native Android/iOS Share Sheet)
     async function shareEntryViaWhatsApp(item) {
       if (!item.image) {
-        alert("Is rachna me koi photo upload nahi hai!");
+        alert("इस रचना में कोई फोटो अपलोड नहीं है!");
         return;
       }
 
-      // 1. Agar browser file sharing support karta hai (Mobile/Chrome/WebView)
-      if (navigator.canShare) {
-        try {
-          const res = await fetch(item.image);
-          const blob = await res.blob();
-          const fileName = `${(item.title || "taoji_rachna").replace(/[^a-zA-Z0-9]/g, "_")}.jpg`;
-          const file = new File([blob], fileName, { type: "image/jpeg" });
+      try {
+        const blob = base64ToBlob(item.image, "image/jpeg");
+        const cleanTitle = (item.title || "taoji_rachna").replace(/[^a-zA-Z0-9_\u0900-\u097F]/g, "_");
+        const file = new File([blob], `${cleanTitle}.jpg`, { type: "image/jpeg" });
 
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              files: [file] // Sirf image bheji ja rahi hai, text bilkul blank hai
-            });
-            return;
-          }
-        } catch (e) {
-          console.warn("Share cancelled or failed:", e);
+        // Native share sheet (WhatsApp + search recipient)
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file] // Strictly image only, no caption/text
+          });
+          return;
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.warn("Share sheet error:", err);
+        } else {
+          return; // User cancelled dialog
         }
       }
 
-      // 2. Desktop fallback (Agar PC par WhatsApp web me direct file share allow na ho)
-      const newTab = window.open();
-      newTab.document.write(`<img src="${item.image}" style="max-width:100%;height:auto;display:block;margin:20px auto;">`);
-      alert("Mobile par direct photo WhatsApp me share ho jayegi. PC par photo ko right-click karke copy/save karke bhej sakte hain.");
+      // Fallback: If device doesn't support file sharing
+      const newWin = window.open();
+      if (newWin) {
+        newWin.document.write(`<img src="${item.image}" style="max-width:100%;height:auto;display:block;margin:20px auto;">`);
+      }
+      alert("मोबाइल पर शेयर शीट खुल जाएगी। अगर डेस्कटॉप पर हैं, तो फोटो को सेव/कॉपी करके WhatsApp वेब में भेज सकते हैं।");
+    }
+
+    function openDetailModal(id) {
+      const item = state.entries.find(e => String(e.id) === String(id));
+      if (!item) return;
+
+      document.getElementById("viewTitle").textContent = item.title;
+      const imgCont = document.getElementById("viewImageContainer");
+      imgCont.innerHTML = item.image ? `<img src="${item.image}" alt="Taoji Rachna">` : "";
+
+      const tagsCont = document.getElementById("viewTags");
+      tagsCont.innerHTML = `
+        <span class="tag category">🏷️ श्रेणी: ${item.category || "सामान्य"}</span>
+        ${item.target ? `<span class="tag">👤 समर्पित: ${item.target}</span>` : ""}
+        ${item.occasion ? `<span class="tag occasion">✨ उपलक्ष्य: ${item.occasion}</span>` : ""}
+      `;
+
+      const textEl = document.getElementById("viewText");
+      if (item.text) {
+        textEl.style.display = "block";
+        textEl.textContent = item.text;
+      } else {
+        textEl.style.display = "none";
+      }
+
+      document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
+      
+      // WhatsApp Share button event listener
+      document.getElementById("whatsappShareBtn").onclick = (e) => {
+        e.stopPropagation();
+        shareEntryViaWhatsApp(item);
+      };
+
+      document.getElementById("editSingleBtn").onclick = () => openEditEntryModal(id);
+
+      const delBtn = document.getElementById("deleteBtn");
+      delBtn.onclick = async () => {
+        if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
+          state.entries = state.entries.filter(e => String(e.id) !== String(id));
+          closeModal("detailModal");
+          renderEntries();
+          updateCategoryCountsAndFilters();
+          await pushToGitHub();
+        }
+      };
+
+      openModal("detailModal");
     }
 
     // ==================== AUTO-SYNC LIFECYCLE LISTENERS ====================
