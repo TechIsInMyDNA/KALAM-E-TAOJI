@@ -1526,89 +1526,36 @@
       renderEntries(filtered);
     }
 
-    // ==================== WHATSAPP SHARING LOGIC ====================
+    // Only Image Share via WhatsApp / Native Share
     async function shareEntryViaWhatsApp(item) {
-      const title = item.title || "कलम-ए-ताऊजी की रचना";
-      const category = item.category ? `🏷️ श्रेणी: ${item.category}\n` : "";
-      const target = item.target ? `👤 समर्पित: ${item.target}\n` : "";
-      const occasion = item.occasion ? `✨ उपलक्ष्य: ${item.occasion}\n` : "";
-      const date = item.date ? `📅 तारीख: ${item.date}\n` : "";
-      const text = item.text ? `\n"${item.text}"\n` : "";
+      if (!item.image) {
+        alert("Is rachna me koi photo upload nahi hai!");
+        return;
+      }
 
-      const shareText = `*${title}*\n${category}${target}${occasion}${date}${text}\n— _कलम-ए-ताऊजी_`;
-
-      // Check if browser supports Web Share API with image file
-      if (item.image && navigator.canShare) {
+      // 1. Agar browser file sharing support karta hai (Mobile/Chrome/WebView)
+      if (navigator.canShare) {
         try {
           const res = await fetch(item.image);
           const blob = await res.blob();
-          const file = new File([blob], `${title.replace(/\s+/g, '_')}.jpg`, { type: "image/jpeg" });
+          const fileName = `${(item.title || "taoji_rachna").replace(/[^a-zA-Z0-9]/g, "_")}.jpg`;
+          const file = new File([blob], fileName, { type: "image/jpeg" });
 
           if (navigator.canShare({ files: [file] })) {
             await navigator.share({
-              title: title,
-              text: shareText,
-              files: [file]
+              files: [file] // Sirf image bheji ja rahi hai, text bilkul blank hai
             });
             return;
           }
         } catch (e) {
-          console.warn("Direct file share not supported or cancelled:", e);
+          console.warn("Share cancelled or failed:", e);
         }
       }
 
-      // Fallback: Open WhatsApp directly with prefilled formatted text
-      const encodedMsg = encodeURIComponent(shareText);
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const whatsappUrl = isMobile 
-        ? `whatsapp://send?text=${encodedMsg}` 
-        : `https://api.whatsapp.com/send?text=${encodedMsg}`;
-
-      window.open(whatsappUrl, "_blank");
-    }
-
-    function openDetailModal(id) {
-      const item = state.entries.find(e => String(e.id) === String(id));
-      if (!item) return;
-
-      document.getElementById("viewTitle").textContent = item.title;
-      const imgCont = document.getElementById("viewImageContainer");
-      imgCont.innerHTML = item.image ? `<img src="${item.image}" alt="Taoji Rachna">` : "";
-
-      const tagsCont = document.getElementById("viewTags");
-      tagsCont.innerHTML = `
-        <span class="tag category">🏷️ श्रेणी: ${item.category || "सामान्य"}</span>
-        ${item.target ? `<span class="tag">👤 समर्पित: ${item.target}</span>` : ""}
-        ${item.occasion ? `<span class="tag occasion">✨ उपलक्ष्य: ${item.occasion}</span>` : ""}
-      `;
-
-      const textEl = document.getElementById("viewText");
-      if (item.text) {
-        textEl.style.display = "block";
-        textEl.textContent = item.text;
-      } else {
-        textEl.style.display = "none";
-      }
-
-      document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
-      
-      // WhatsApp Share button hook
-      document.getElementById("whatsappShareBtn").onclick = () => shareEntryViaWhatsApp(item);
-
-      document.getElementById("editSingleBtn").onclick = () => openEditEntryModal(id);
-
-      const delBtn = document.getElementById("deleteBtn");
-      delBtn.onclick = async () => {
-        if (confirm("क्या आप इस रचना को हटाना चाहते हैं?")) {
-          state.entries = state.entries.filter(e => String(e.id) !== String(id));
-          closeModal("detailModal");
-          renderEntries();
-          updateCategoryCountsAndFilters();
-          await pushToGitHub();
-        }
-      };
-
-      openModal("detailModal");
+      // 2. Desktop fallback (Agar PC par WhatsApp web me direct file share allow na ho)
+      const newTab = window.open();
+      newTab.document.write(`<img src="${item.image}" style="max-width:100%;height:auto;display:block;margin:20px auto;">`);
+      alert("Mobile par direct photo WhatsApp me share ho jayegi. PC par photo ko right-click karke copy/save karke bhej sakte hain.");
     }
 
     // ==================== AUTO-SYNC LIFECYCLE LISTENERS ====================
