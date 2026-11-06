@@ -584,7 +584,7 @@
     </div>
   </div>
 
-  <!-- Detail Viewer Modal (Direct WhatsApp Share Button Integrated) -->
+  <!-- Detail Viewer Modal -->
   <div class="modal-overlay" id="detailModal">
     <div class="modal detail-view">
       <div class="modal-header">
@@ -595,7 +595,6 @@
       <div class="card-tags" id="viewTags"></div>
       <div class="detail-poem" id="viewText"></div>
       
-      <!-- Action Buttons with Functional WhatsApp Button -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; flex-wrap: wrap;">
         <span style="font-size: 0.75rem; color: var(--text-muted);" id="viewDate"></span>
         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -611,6 +610,7 @@
     const GH_OWNER = "TechIsInMyDNA";
     const GH_REPO = "KALAM-E-TAOJI";
     const GH_FILE = "data.json";
+    const GH_STORAGE_BRANCH = "data-storage";
     const MASTER_PASSPHRASE = "Dinesh@2026";
 
     let state = {
@@ -1022,7 +1022,71 @@
       reader.readAsText(file);
     }
 
-    // ==================== ROBUST GITHUB SYNC ====================
+    // ==================== BRANCH DATA STORAGE (PREVENTS GITHUB PAGES DEPLOY SPAM) ====================
+    async function ensureStorageBranchExists() {
+      const branchUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/branches/${GH_STORAGE_BRANCH}`;
+      const branchRes = await fetch(branchUrl, {
+        headers: {
+          "Authorization": `Bearer ${state.ghToken}`,
+          "Accept": "application/vnd.github.v3+json"
+        },
+        cache: "no-store"
+      });
+
+      if (branchRes.status === 200) {
+        return true;
+      }
+
+      if (branchRes.status === 404) {
+        // Find default branch commit SHA to branch off from
+        const repoUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}`;
+        const repoRes = await fetch(repoUrl, {
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        });
+
+        if (!repoRes.ok) throw new Error("रिपॉजिटरी की डिफ़ॉल्ट जानकारी नहीं मिली!");
+        const repoData = await repoRes.json();
+        const defaultBranch = repoData.default_branch || "main";
+
+        const refUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/ref/heads/${defaultBranch}`;
+        const refRes = await fetch(refUrl, {
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        });
+
+        if (!refRes.ok) throw new Error(`${defaultBranch} ब्रांच का संदर्भ (Ref) नहीं मिला!`);
+        const refData = await refRes.json();
+        const baseCommitSha = refData.object.sha;
+
+        // Create the new storage branch
+        const createRefUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/refs`;
+        const createRes = await fetch(createRefUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${state.ghToken}`,
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ref: `refs/heads/${GH_STORAGE_BRANCH}`,
+            sha: baseCommitSha
+          })
+        });
+
+        if (createRes.ok || createRes.status === 422) {
+          return true;
+        } else {
+          throw new Error("डेटा ब्रांच (" + GH_STORAGE_BRANCH + ") बनाने में त्रुटि: " + createRes.status);
+        }
+      }
+      return false;
+    }
+
     async function handleAuthOrSync() {
       const pass = prompt("कृपया मास्टर पासफ़्रेज़ दर्ज करें (Master Passphrase):");
       if (pass !== MASTER_PASSPHRASE) {
@@ -1043,10 +1107,12 @@
       state.isSyncing = true;
 
       const statusEl = document.getElementById("syncStatus");
-      if (!isBackground) statusEl.textContent = "GitHub से लाइव डेटा लाया जा रहा है...";
+      if (!isBackground) statusEl.textContent = "डेटा ब्रांच से लाइव डेटा लाया जा रहा है...";
 
       try {
-        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        await ensureStorageBranchExists();
+
+        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}?ref=${GH_STORAGE_BRANCH}`;
         const metaRes = await fetch(metaUrl, {
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
@@ -1121,6 +1187,7 @@
             setTimeout(() => { statusEl.textContent = ""; }, 2000);
           }
         } else if (metaRes.status === 404) {
+          // File not in branch yet, create it on data-storage branch
           await pushToGitHub();
         } else {
           throw new Error("HTTP " + metaRes.status);
@@ -1151,10 +1218,12 @@
       if (!state.ghToken) return;
 
       const statusEl = document.getElementById("syncStatus");
-      statusEl.textContent = "क्लाउड पर सुरक्षित हो रहा है...";
+      statusEl.textContent = "डेटा ब्रांच पर सुरक्षित हो रहा है...";
 
       try {
-        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
+        await ensureStorageBranchExists();
+
+        const metaUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}?ref=${GH_STORAGE_BRANCH}`;
         const checkRes = await fetch(metaUrl, {
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
@@ -1175,13 +1244,15 @@
         const encrypted = CryptoJS.AES.encrypt(JSON.stringify(payload), MASTER_PASSPHRASE).toString();
         const base64Content = safeStringToBase64(encrypted);
 
+        const putUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_FILE}`;
         const body = {
-          message: "Auto-sync taoji records",
-          content: base64Content
+          message: "Update taoji records on data-storage branch",
+          content: base64Content,
+          branch: GH_STORAGE_BRANCH
         };
         if (state.sha) body.sha = state.sha;
 
-        const res = await fetch(metaUrl, {
+        const res = await fetch(putUrl, {
           method: "PUT",
           headers: {
             "Authorization": `Bearer ${state.ghToken}`,
@@ -1526,7 +1597,6 @@
       renderEntries(filtered);
     }
 
-    // Helper: Base64 to Blob without fetch error
     function base64ToBlob(base64Data, contentType = "image/jpeg") {
       const parts = base64Data.split(";base64,");
       const raw = window.atob(parts.length > 1 ? parts[1] : parts[0]);
@@ -1538,7 +1608,6 @@
       return new Blob([uInt8Array], { type: contentType });
     }
 
-    // ONLY IMAGE SHARE VIA WHATSAPP (Native Android/iOS Share Sheet)
     async function shareEntryViaWhatsApp(item) {
       if (!item.image) {
         alert("इस रचना में कोई फोटो अपलोड नहीं है!");
@@ -1550,10 +1619,9 @@
         const cleanTitle = (item.title || "taoji_rachna").replace(/[^a-zA-Z0-9_\u0900-\u097F]/g, "_");
         const file = new File([blob], `${cleanTitle}.jpg`, { type: "image/jpeg" });
 
-        // Native share sheet (WhatsApp + search recipient)
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({
-            files: [file] // Strictly image only, no caption/text
+            files: [file]
           });
           return;
         }
@@ -1561,11 +1629,10 @@
         if (err.name !== "AbortError") {
           console.warn("Share sheet error:", err);
         } else {
-          return; // User cancelled dialog
+          return;
         }
       }
 
-      // Fallback: If device doesn't support file sharing
       const newWin = window.open();
       if (newWin) {
         newWin.document.write(`<img src="${item.image}" style="max-width:100%;height:auto;display:block;margin:20px auto;">`);
@@ -1598,7 +1665,6 @@
 
       document.getElementById("viewDate").textContent = item.date ? `रचना तारीख: ${item.date}` : "";
       
-      // WhatsApp Share button event listener
       document.getElementById("whatsappShareBtn").onclick = (e) => {
         e.stopPropagation();
         shareEntryViaWhatsApp(item);
